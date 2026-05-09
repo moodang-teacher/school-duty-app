@@ -43,7 +43,7 @@ export default function SettingsScreen({
     setNotifEnabled(typeof Notification !== 'undefined' && Notification.permission === 'granted');
   }, []);
 
-  // 나에게 들어온 교환 요청 + 내가 보낸 교환 요청 실시간 구독
+  // 나에게 들어온 변경 요청 + 내가 보낸 변경 요청 실시간 구독
   useEffect(() => {
     if (!currentTeacherId) return;
     const unsub = onSnapshot(collection(db, 'swapRequests'), (snap) => {
@@ -79,7 +79,7 @@ export default function SettingsScreen({
     };
     await setDoc(doc(db, 'swapRequests', id), req);
     setShowSwap(false);
-    alert('교환 요청을 보냈습니다. 상대방이 수락하면 즉시 적용됩니다.');
+    alert('변경 요청을 보냈습니다. 상대방이 수락하면 즉시 적용됩니다.');
   }
 
   async function handleAcceptSwap(req: SwapRequest) {
@@ -126,22 +126,22 @@ export default function SettingsScreen({
         </div>
       </section>
 
-      {/* 교환 신청 */}
+      {/* 변경 신청 */}
       <section>
         <div className="flex items-center justify-between mb-2">
-          <div className="text-sm text-slate-500">교환 신청</div>
+          <div className="text-sm text-slate-500">변경 신청</div>
           <button
             onClick={() => setShowSwap(true)}
             className="text-sm bg-blue-600 text-white px-4 py-2 rounded-md"
             disabled={myDuties.length === 0}
           >
-            새 교환 요청
+            새 변경 요청
           </button>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100">
           {swapRequests.length === 0 ? (
-            <div className="p-4 text-md text-slate-400 text-center">교환 내역 없음</div>
+            <div className="p-4 text-md text-slate-400 text-center">변경 내역 없음</div>
           ) : (
             swapRequests.map((r) => {
               const isIncoming = r.toTeacherId === currentTeacherId && r.status === 'pending';
@@ -209,7 +209,7 @@ export default function SettingsScreen({
         본인 다시 선택
       </button>
 
-      {/* 교환 요청 모달 */}
+      {/* 변경 요청 모달 */}
       {showSwap && (
         <SwapModal
           myDuties={myDuties}
@@ -247,7 +247,7 @@ function SwapModal({ myDuties, assignments, currentTeacherId, onClose, onSubmit 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center">
       <div className="bg-white w-full max-w-md rounded-t-2xl p-6 max-h-[80vh] overflow-y-auto">
-        <h2 className="text-xl font-semibold mb-4">교환 요청</h2>
+        <h2 className="text-xl font-semibold mb-4">변경 요청</h2>
 
         <div className="space-y-4">
           <div>

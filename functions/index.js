@@ -65,7 +65,7 @@ exports.dailyDutyNotification = onSchedule(
 );
 
 /**
- * 교환 요청이 생성되면 상대방에게 알림
+ * 변경 요청이 생성되면 상대방에게 알림
  */
 exports.notifySwapRequest = onDocumentCreated(
   {
@@ -85,8 +85,8 @@ exports.notifySwapRequest = onDocumentCreated(
     await messaging.send({
       token: tokenDoc.data().token,
       notification: {
-        title: '교환 요청 도착',
-        body: `${fromName} 선생님이 당직 교환을 요청했습니다`,
+        title: '변경 요청 도착',
+        body: `${fromName} 선생님이 당직 변경을 요청했습니다`,
       },
       webpush: {
         fcmOptions: { link: '/?tab=settings' },
@@ -97,7 +97,6 @@ exports.notifySwapRequest = onDocumentCreated(
 
 /**
  * 공휴일 자동 갱신 - 매년 12월 1일에 다음해 공휴일을 가져옴
- * 한국천문연구원 특일정보 API 사용
  */
 async function fetchHolidaysFromAPI(year, apiKey) {
   const result = {};
@@ -124,12 +123,9 @@ async function fetchHolidaysFromAPI(year, apiKey) {
   return result;
 }
 
-/**
- * 매년 12월 1일 새벽 3시(KST) - 다음해 공휴일을 Firestore에 저장
- */
 exports.fetchNextYearHolidays = onSchedule(
   {
-    schedule: '0 3 1 12 *', // cron: 12월 1일 03:00
+    schedule: '0 3 1 12 *',
     timeZone: 'Asia/Seoul',
     region: 'asia-northeast3',
     secrets: [holidayApiKey],
@@ -145,7 +141,6 @@ exports.fetchNextYearHolidays = onSchedule(
       return;
     }
 
-    // Firestore의 holidays/{year} 문서에 저장
     await db.collection('holidays').doc(String(nextYear)).set({
       year: nextYear,
       data: holidays,
@@ -156,13 +151,9 @@ exports.fetchNextYearHolidays = onSchedule(
   }
 );
 
-/**
- * 매년 12월 15일 새벽 3시(KST) - 다음해 당직 일정 자동 생성
- * (공휴일 데이터가 먼저 들어와있어야 정확함)
- */
 exports.generateNextYearSchedule = onSchedule(
   {
-    schedule: '0 3 15 12 *', // cron: 12월 15일 03:00
+    schedule: '0 3 15 12 *',
     timeZone: 'Asia/Seoul',
     region: 'asia-northeast3',
   },
@@ -170,7 +161,6 @@ exports.generateNextYearSchedule = onSchedule(
     const nextYear = new Date().getFullYear() + 1;
     console.log(`${nextYear}년 당직 일정 생성 시작...`);
 
-    // 1. 선생님 명단
     const teachersSnap = await db.collection('teachers').get();
     const teachers = teachersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (teachers.length === 0) {
@@ -178,11 +168,9 @@ exports.generateNextYearSchedule = onSchedule(
       return;
     }
 
-    // 2. 공휴일 데이터
     const holidayDoc = await db.collection('holidays').doc(String(nextYear)).get();
     const holidays = holidayDoc.exists ? holidayDoc.data().data || {} : {};
 
-    // 3. 일정 생성
     const counts = {};
     teachers.forEach((t) => (counts[t.id] = 0));
     let rotationIdx = 0;
@@ -195,16 +183,14 @@ exports.generateNextYearSchedule = onSchedule(
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().slice(0, 10);
       const day = d.getDay();
-      if (day === 0 || day === 6) continue; // 주말
-      if (holidays[dateStr]) continue; // 공휴일
+      if (day === 0 || day === 6) continue;
+      if (holidays[dateStr]) continue;
 
-      // 후보 (요일 제외 적용)
       const candidates = teachers.filter(
         (t) => !(t.excludeWeekdays || []).includes(day)
       );
       const pool = candidates.length > 0 ? candidates : teachers;
 
-      // 형평성: 누적 횟수 최소 + 순번 가까운 사람
       const minCount = Math.min(...pool.map((c) => counts[c.id]));
       const tied = pool.filter((c) => counts[c.id] === minCount);
 
@@ -227,7 +213,6 @@ exports.generateNextYearSchedule = onSchedule(
       rotationIdx = teachers.findIndex((t) => t.id === picked.id) + 1;
       batchCount++;
 
-      // Firestore 배치는 500개 제한 → 분할 커밋
       if (batchCount >= 400) {
         await batch.commit();
         batchCount = 0;
@@ -239,10 +224,6 @@ exports.generateNextYearSchedule = onSchedule(
   }
 );
 
-/**
- * 수동 실행용 - 첫 사용 시 또는 강제 갱신용
- * Firebase Console > Functions에서 실행 가능
- */
 const { onCall } = require('firebase-functions/v2/https');
 
 exports.manualFetchHolidays = onCall(

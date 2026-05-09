@@ -75,7 +75,7 @@ export default function HomeScreen({ assignments, currentTeacherId }: Props) {
               </div>
               <div className="text-md font-medium">
                 {a.teacherName}
-                {a.swappedFrom && <span className="ml-1 text-xs text-amber-600">(교환)</span>}
+                {a.swappedFrom && <span className="ml-1 text-xs text-amber-600">(변경)</span>}
               </div>
             </div>
           ))}
