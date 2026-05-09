@@ -11,6 +11,7 @@ import HomeScreen from '@/components/HomeScreen';
 import CalendarScreen from '@/components/CalendarScreen';
 import StatsScreen from '@/components/StatsScreen';
 import SettingsScreen from '@/components/SettingsScreen';
+import SplashScreen from '@/components/SplashScreen';
 
 type Tab = 'home' | 'calendar' | 'stats' | 'settings';
 
@@ -70,11 +71,7 @@ export default function Page() {
   }, [user]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-slate-500 text-sm">불러오는 중...</div>
-      </div>
-    );
+    return <SplashScreen />;
   }
 
   if (!currentTeacherId && teachers.length > 0) {

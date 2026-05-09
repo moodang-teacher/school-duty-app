@@ -14,6 +14,7 @@ import {
 } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { DutyAssignment } from '@/lib/schedule';
+import SplashScreen from '@/components/SplashScreen';
 
 interface Row {
   type: 'duty' | 'holiday';
@@ -117,11 +118,7 @@ export default function PrintPage() {
   }
 
   if (!ready || loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-slate-500 text-sm">불러오는 중...</div>
-      </div>
-    );
+    return <SplashScreen />;
   }
 
   return (

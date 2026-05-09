@@ -18,6 +18,7 @@ import {
   generateSchedule,
 } from '@/lib/schedule';
 import { loadHolidays } from '@/lib/holidays';
+import SplashScreen from '@/components/SplashScreen';
 
 export default function AdminPage() {
   const [ready, setReady] = useState(false);
@@ -70,12 +71,6 @@ export default function AdminPage() {
     }
   }
 
-  /**
-   * 오늘 이후 일정만 재생성
-   * - 과거 일정은 그대로 유지 (역사 보존)
-   * - 미래 일정만 새 명단/규칙으로 재생성
-   * - 형평성: 올해 누적 횟수를 이어받아 계속 보정
-   */
   async function regenerateFutureSchedule() {
     if (
       !confirm(
@@ -92,11 +87,8 @@ export default function AdminPage() {
     setResult('');
     try {
       const today = format(new Date(), 'yyyy-MM-dd');
-
-      // 1. 공휴일 데이터 로드
       await loadHolidays();
 
-      // 2. 선생님 명단 로드
       const teachersSnap = await getDocs(collection(db, 'teachers'));
       const teachers: Teacher[] = teachersSnap.docs.map((d) => ({
         id: d.id,
@@ -108,24 +100,18 @@ export default function AdminPage() {
         return;
       }
 
-      // 3. 기존 일정 로드
       const assignSnap = await getDocs(collection(db, 'assignments'));
       const allAssignments: DutyAssignment[] = assignSnap.docs.map(
         (d) => d.data() as DutyAssignment
       );
 
-      // 4. 과거 일정만 추출 (오늘 미포함, 즉 어제까지)
       const pastAssignments = allAssignments.filter((a) => a.date < today);
-
-      // 5. 오늘 이후 일정 모두 삭제
       const futureToDelete = allAssignments.filter((a) => a.date >= today);
       const deletePromises = futureToDelete.map((a) =>
         deleteDoc(doc(db, 'assignments', a.date))
       );
       await Promise.all(deletePromises);
 
-      // 6. 오늘부터 12/31까지 새 일정 생성
-      // 단 형평성을 위해 과거 누적 횟수를 이어받음 (generateSchedule이 알아서 처리)
       const endStr = `${year}-12-31`;
       const newAssignments = generateSchedule(
         teachers,
@@ -134,7 +120,6 @@ export default function AdminPage() {
         pastAssignments
       );
 
-      // 7. Firestore에 저장
       const savePromises = newAssignments.map((a) =>
         setDoc(doc(db, 'assignments', a.date), a)
       );
@@ -154,10 +139,6 @@ export default function AdminPage() {
     }
   }
 
-  /**
-   * 전체 재생성 - 1년 전체 일정을 처음부터 다시 만듦
-   * 새해 첫 사용 시 또는 강제 초기화용
-   */
   async function regenerateFullYear() {
     if (
       !confirm(
@@ -185,12 +166,10 @@ export default function AdminPage() {
         return;
       }
 
-      // 해당 연도 전체 일정 삭제
       const snap = await getDocs(collection(db, 'assignments'));
       const toDelete = snap.docs.filter((d) => d.id.startsWith(`${year}-`));
       await Promise.all(toDelete.map((d) => deleteDoc(doc(db, 'assignments', d.id))));
 
-      // 새로 생성
       const newAssignments = generateSchedule(
         teachers,
         `${year}-01-01`,
@@ -210,11 +189,7 @@ export default function AdminPage() {
   }
 
   if (!ready) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-slate-500 text-sm">불러오는 중...</div>
-      </div>
-    );
+    return <SplashScreen />;
   }
 
   return (
@@ -224,7 +199,6 @@ export default function AdminPage() {
         <p className="text-xs text-slate-500 mt-1">공휴일 갱신 및 일정 재생성</p>
       </header>
 
-      {/* 현황 요약 */}
       <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4">
         <div className="text-sm font-medium mb-3">현황</div>
         <div className="space-y-2 text-sm">
@@ -243,7 +217,6 @@ export default function AdminPage() {
         </div>
       </section>
 
-      {/* 공휴일 가져오기 */}
       <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4">
         <div className="text-sm font-medium mb-2">공휴일 가져오기</div>
         <p className="text-xs text-slate-500 mb-3">
@@ -268,7 +241,6 @@ export default function AdminPage() {
         </div>
       </section>
 
-      {/* 일정 재생성 - 메인 (오늘 이후) */}
       <section className="bg-white border-2 border-blue-200 rounded-xl p-4 mb-4">
         <div className="flex items-center gap-2 mb-2">
           <span className="text-sm font-medium">오늘 이후 일정 재생성</span>
@@ -290,7 +262,6 @@ export default function AdminPage() {
         </button>
       </section>
 
-      {/* 일정 재생성 - 전체 (위험) */}
       <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4">
         <div className="text-sm font-medium mb-2 text-amber-700">
           ⚠️ 전체 재생성 (위험)
@@ -309,7 +280,6 @@ export default function AdminPage() {
         </button>
       </section>
 
-      {/* 결과 메시지 */}
       {result && (
         <div
           className={`p-3 rounded-md text-sm whitespace-pre-line ${
