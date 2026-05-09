@@ -94,7 +94,7 @@ export default function CalendarScreen({ assignments, currentTeacherId }: Props)
                 {format(d, 'd')}
               </span>
               {a && (
-                <span className="text-[9px] mt-0.5 text-blue-700 truncate w-full text-center leading-tight">
+                <span className="text-[11px] mt-0.5 text-blue-700 truncate w-full text-center leading-tight">
                   {a.teacherName.slice(0, 3)}
                 </span>
               )}

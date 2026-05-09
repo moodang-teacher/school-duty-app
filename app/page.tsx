@@ -36,21 +36,17 @@ export default function Page() {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      // 1. 공휴일 데이터 먼저 로드 (Firestore에서)
       await loadHolidays();
 
-      // 2. 선생님 명단
       const teachersSnap = await getDocs(collection(db, 'teachers'));
       const teachersList: Teacher[] = teachersSnap.docs.map((d) => ({
         id: d.id,
         ...(d.data() as Omit<Teacher, 'id'>),
       }));
 
-      // 3. 일정 로드
       const assignSnap = await getDocs(collection(db, 'assignments'));
       let assignList: DutyAssignment[] = assignSnap.docs.map((d) => d.data() as DutyAssignment);
 
-      // 일정이 없으면 올해 일정 생성
       if (assignList.length === 0 && teachersList.length > 0) {
         const today = new Date();
         const startStr = `${today.getFullYear()}-01-01`;
@@ -116,9 +112,9 @@ export default function Page() {
   }
 
   return (
-    <div className="min-h-screen max-w-md mx-auto bg-slate-50 pb-20">
+    <div className="min-h-screen max-w-md mx-auto bg-slate-50 pb-24">
       <header className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
-        <h1 className="text-lg font-semibold">교사 당직 관리</h1>
+        <h1 className="text-lg font-semibold">당직ON - ITI 당직관리</h1>
         <span className="text-xs text-slate-500">
           {teachers.find((t) => t.id === currentTeacherId)?.name} 선생님
         </span>
@@ -149,20 +145,24 @@ export default function Page() {
       <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-slate-200 grid grid-cols-4">
         {(
           [
-            { id: 'home', label: '홈', icon: '🏠' },
-            { id: 'calendar', label: '달력', icon: '📅' },
-            { id: 'stats', label: '통계', icon: '📊' },
-            { id: 'settings', label: '설정', icon: '⚙️' },
+            { id: 'home', label: '홈', icon: '/images/ico_home.png' },
+            { id: 'calendar', label: '달력', icon: '/images/ico_calendar.png' },
+            { id: 'stats', label: '통계', icon: '/images/ico_statistics.png' },
+            { id: 'settings', label: '설정', icon: '/images/ico_settings.png' },
           ] as { id: Tab; label: string; icon: string }[]
         ).map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`py-3 flex flex-col items-center text-xs ${
+            className={`py-4 flex flex-col items-center text-xs ${
               tab === t.id ? 'text-blue-600 font-medium' : 'text-slate-500'
             }`}
           >
-            <span className="text-lg mb-0.5">{t.icon}</span>
+            <img
+              src={t.icon}
+              alt={t.label}
+              className={`w-7 h-7 mb-1 ${tab === t.id ? 'opacity-100' : 'opacity-60'}`}
+            />
             {t.label}
           </button>
         ))}

@@ -107,17 +107,17 @@ export default function SettingsScreen({
         <div className="bg-white border border-slate-200 rounded-xl p-4">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm font-medium">당직일 알림</div>
-              <div className="text-xs text-slate-500 mt-0.5">매일 오후 5:40</div>
+              <div className="text-lg font-medium">당직일 알림</div>
+              <div className="text-sm text-slate-500 mt-0.5">매일 오후 5:40</div>
             </div>
             {notifEnabled ? (
-              <span className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded-full">
+              <span className="text-sm bg-green-50 text-green-700 px-3 py-1.5 rounded-full">
                 활성화됨
               </span>
             ) : (
               <button
                 onClick={handleEnableNotif}
-                className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-md"
+                className="text-sm bg-blue-600 text-white px-4 py-2 rounded-md"
               >
                 알림 켜기
               </button>
@@ -132,7 +132,7 @@ export default function SettingsScreen({
           <div className="text-sm text-slate-500">교환 신청</div>
           <button
             onClick={() => setShowSwap(true)}
-            className="text-xs bg-blue-600 text-white px-3 py-1 rounded-md"
+            className="text-sm bg-blue-600 text-white px-4 py-2 rounded-md"
             disabled={myDuties.length === 0}
           >
             새 교환 요청
@@ -141,24 +141,24 @@ export default function SettingsScreen({
 
         <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100">
           {swapRequests.length === 0 ? (
-            <div className="p-4 text-sm text-slate-400 text-center">교환 내역 없음</div>
+            <div className="p-4 text-md text-slate-400 text-center">교환 내역 없음</div>
           ) : (
             swapRequests.map((r) => {
               const isIncoming = r.toTeacherId === currentTeacherId && r.status === 'pending';
               const fromName = teachers.find((t) => t.id === r.fromTeacherId)?.name;
               const toName = teachers.find((t) => t.id === r.toTeacherId)?.name;
               return (
-                <div key={r.id} className="p-3">
-                  <div className="text-sm">
+                <div key={r.id} className="p-4">
+                  <div className="text-md font-medium">
                     {format(parseISO(r.fromDate), 'M/d', { locale: ko })} ↔{' '}
                     {format(parseISO(r.toDate), 'M/d', { locale: ko })}
                   </div>
-                  <div className="text-xs text-slate-500 mt-0.5">
+                  <div className="text-sm text-slate-500 mt-0.5">
                     {fromName} → {toName}
                   </div>
                   <div className="mt-2 flex items-center justify-between">
                     <span
-                      className={`text-xs px-2 py-0.5 rounded-full ${
+                      className={`text-sm px-3 py-1 rounded-full ${
                         r.status === 'accepted'
                           ? 'bg-green-50 text-green-700'
                           : r.status === 'rejected'
@@ -176,13 +176,13 @@ export default function SettingsScreen({
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleRejectSwap(r)}
-                          className="text-xs px-2 py-1 border border-slate-300 rounded"
+                          className="text-sm px-3 py-1.5 border border-slate-300 rounded"
                         >
                           거절
                         </button>
                         <button
                           onClick={() => handleAcceptSwap(r)}
-                          className="text-xs px-2 py-1 bg-blue-600 text-white rounded"
+                          className="text-sm px-3 py-1.5 bg-blue-600 text-white rounded"
                         >
                           수락
                         </button>
@@ -204,7 +204,7 @@ export default function SettingsScreen({
             window.location.reload();
           }
         }}
-        className="w-full p-3 text-sm text-slate-500 border border-slate-200 rounded-lg"
+        className="w-full p-4 text-md text-slate-500 border border-slate-200 rounded-lg"
       >
         본인 다시 선택
       </button>
@@ -246,16 +246,16 @@ function SwapModal({ myDuties, assignments, currentTeacherId, onClose, onSubmit 
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center">
-      <div className="bg-white w-full max-w-md rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto">
-        <h2 className="text-base font-semibold mb-3">교환 요청</h2>
+      <div className="bg-white w-full max-w-md rounded-t-2xl p-6 max-h-[80vh] overflow-y-auto">
+        <h2 className="text-xl font-semibold mb-4">교환 요청</h2>
 
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div>
-            <label className="block text-xs text-slate-500 mb-1">내 당직일</label>
+            <label className="block text-sm text-slate-500 mb-2">내 당직일</label>
             <select
               value={myDate}
               onChange={(e) => setMyDate(e.target.value)}
-              className="w-full p-2 border border-slate-200 rounded-md text-sm"
+              className="w-full p-3 border border-slate-200 rounded-md text-md"
             >
               <option value="">선택하세요</option>
               {myDuties.map((d) => (
@@ -267,11 +267,11 @@ function SwapModal({ myDuties, assignments, currentTeacherId, onClose, onSubmit 
           </div>
 
           <div>
-            <label className="block text-xs text-slate-500 mb-1">바꿀 상대 당직일</label>
+            <label className="block text-sm text-slate-500 mb-2">바꿀 상대 당직일</label>
             <select
               value={partnerDate}
               onChange={(e) => setPartnerDate(e.target.value)}
-              className="w-full p-2 border border-slate-200 rounded-md text-sm"
+              className="w-full p-3 border border-slate-200 rounded-md text-md"
             >
               <option value="">선택하세요</option>
               {otherDuties.map((d) => (
@@ -283,17 +283,17 @@ function SwapModal({ myDuties, assignments, currentTeacherId, onClose, onSubmit 
           </div>
         </div>
 
-        <div className="flex gap-2 mt-5">
+        <div className="flex gap-2 mt-6">
           <button
             onClick={onClose}
-            className="flex-1 py-2 border border-slate-300 rounded-md text-sm"
+            className="flex-1 py-3 border border-slate-300 rounded-md text-md"
           >
             취소
           </button>
           <button
             disabled={!myDate || !partnerDate || !partnerAssign}
             onClick={() => onSubmit(myDate, partnerAssign!.teacherId, partnerDate)}
-            className="flex-1 py-2 bg-blue-600 text-white rounded-md text-sm disabled:bg-slate-300"
+            className="flex-1 py-3 bg-blue-600 text-white rounded-md text-md disabled:bg-slate-300"
           >
             요청 보내기
           </button>
