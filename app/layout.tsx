@@ -3,12 +3,12 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: '교사 당직 관리',
-  description: '학교 교사 당직 순번 관리 시스템',
+  description: '인천직업전문학교 당직 순번 관리 시스템',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: '당직 관리',
+    title: 'ITI 당직 관리',
   },
   icons: {
     icon: '/icon-192.png',
