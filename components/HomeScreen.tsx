@@ -31,9 +31,9 @@ export default function HomeScreen({ assignments, currentTeacherId }: Props) {
           <span className="text-xs text-blue-700 font-medium">오늘 · {todayLabel}</span>
         </div>
         {isWeekend(today) ? (
-          <div className="text-base text-slate-600">주말 — 당직 없음</div>
+          <div className="text-xl text-slate-800 font-semibold">주말 — 당직 없음</div>
         ) : isHoliday(today) ? (
-          <div className="text-base text-slate-600">{getHolidayName(today)} — 당직 없음</div>
+          <div className="text-xl text-slate-800 font-semibold">{getHolidayName(today)} — 당직 없음</div>
         ) : todayDuty ? (
           <div>
             <div className="text-xl font-semibold">{todayDuty.teacherName} 선생님</div>
@@ -50,7 +50,7 @@ export default function HomeScreen({ assignments, currentTeacherId }: Props) {
           <div className="text-xs text-slate-500 mb-1">다음 당직</div>
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-base font-medium">{nextDuty.teacherName} 선생님</div>
+              <div className="text-lg font-medium">{nextDuty.teacherName} 선생님</div>
               <div className="text-xs text-slate-500 mt-0.5">
                 {format(parseISO(nextDuty.date), 'M월 d일 (E)', { locale: ko })} · 17:40
               </div>
@@ -66,14 +66,14 @@ export default function HomeScreen({ assignments, currentTeacherId }: Props) {
           {upcoming.slice(0, 5).map((a) => (
             <div
               key={a.date}
-              className={`p-3 flex items-center justify-between ${
+              className={`p-4 flex items-center justify-between ${
                 a.teacherId === currentTeacherId ? 'bg-blue-50' : ''
               }`}
             >
-              <div className="text-sm">
+              <div className="text-md">
                 {format(parseISO(a.date), 'M/d (E)', { locale: ko })}
               </div>
-              <div className="text-sm font-medium">
+              <div className="text-md font-medium">
                 {a.teacherName}
                 {a.swappedFrom && <span className="ml-1 text-xs text-amber-600">(교환)</span>}
               </div>
