@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import UpdateChecker from '@/components/UpdateChecker';
 
 export const metadata: Metadata = {
   title: '당직ON - ITI 당직관리',
@@ -27,7 +28,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ko">
-      <body>{children}</body>
+      <body>
+        {children}
+        <UpdateChecker />
+      </body>
     </html>
   );
 }
