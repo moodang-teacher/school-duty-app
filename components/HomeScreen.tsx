@@ -12,7 +12,11 @@ interface Props {
   currentTeacherId: string;
 }
 
+const VIEWER_ID = 'iti_admin';
+
 export default function HomeScreen({ assignments, currentTeacherId }: Props) {
+  const isViewer = currentTeacherId === VIEWER_ID;
+
   const today = format(new Date(), 'yyyy-MM-dd');
   const todayDuty = assignments.find((a) => a.date === today);
   const upcoming = assignments
@@ -82,8 +86,8 @@ export default function HomeScreen({ assignments, currentTeacherId }: Props) {
         </div>
       </div>
 
-      {/* 내 다음 당직 */}
-      {myNext && (
+      {/* 내 다음 당직 - 관리자 모드에서는 숨김 */}
+      {!isViewer && myNext && (
         <div>
           <div className="text-sm text-slate-500 mb-2 mt-4">내 다음 당직</div>
           <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between">

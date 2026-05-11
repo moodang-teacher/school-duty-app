@@ -15,6 +15,9 @@ import SplashScreen from '@/components/SplashScreen';
 
 type Tab = 'home' | 'calendar' | 'stats' | 'settings';
 
+// ITI관리자를 나타내는 특수 ID
+const VIEWER_ID = 'iti_admin';
+
 export default function Page() {
   const [tab, setTab] = useState<Tab>('home');
   const [user, setUser] = useState<User | null>(null);
@@ -22,6 +25,8 @@ export default function Page() {
   const [assignments, setAssignments] = useState<DutyAssignment[]>([]);
   const [currentTeacherId, setCurrentTeacherId] = useState<string>('');
   const [loading, setLoading] = useState(true);
+
+  const isViewer = currentTeacherId === VIEWER_ID;
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -70,15 +75,49 @@ export default function Page() {
     setupForegroundListener();
   }, [user]);
 
+  // 관리자 모드에서 settings 탭이 선택되어 있으면 home으로 리다이렉트
+  useEffect(() => {
+    if (isViewer && tab === 'settings') {
+      setTab('home');
+    }
+  }, [isViewer, tab]);
+
   if (loading) {
     return <SplashScreen />;
   }
 
+  // 첫 접속 선택 화면
   if (!currentTeacherId && teachers.length > 0) {
     return (
       <div className="min-h-screen p-6 max-w-md mx-auto">
         <h1 className="text-xl font-semibold mb-2">본인을 선택해주세요</h1>
         <p className="text-sm text-slate-500 mb-4">한 번만 선택하면 다음부터 자동 로그인됩니다.</p>
+
+        {/* ITI관리자 - 상단 강조 */}
+        <button
+          onClick={() => {
+            localStorage.setItem('teacherId', VIEWER_ID);
+            setCurrentTeacherId(VIEWER_ID);
+          }}
+          className="w-full p-4 mb-3 rounded-xl border-2 border-blue-500 bg-gradient-to-r from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100 flex items-center gap-3 transition-colors"
+        >
+          <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center text-lg">
+            👁️
+          </div>
+          <div className="flex-1 text-left">
+            <div className="text-base font-semibold text-blue-900">ITI관리자</div>
+            <div className="text-xs text-blue-700 mt-0.5">현황 조회 전용</div>
+          </div>
+        </button>
+
+        {/* 구분선 */}
+        <div className="flex items-center gap-3 my-4">
+          <div className="flex-1 h-px bg-slate-200" />
+          <div className="text-xs text-slate-400">당직 선생님</div>
+          <div className="flex-1 h-px bg-slate-200" />
+        </div>
+
+        {/* 일반 선생님 명단 */}
         <div className="space-y-2">
           {teachers.map((t) => (
             <button
@@ -108,12 +147,42 @@ export default function Page() {
     );
   }
 
+  // 표시할 이름 결정
+  const displayName = isViewer
+    ? 'ITI관리자'
+    : `${teachers.find((t) => t.id === currentTeacherId)?.name ?? ''} 선생님`;
+
+  // 표시할 탭 결정 (관리자 모드면 settings 제외)
+  const visibleTabs: { id: Tab; label: string; icon: string }[] = [
+    { id: 'home', label: '홈', icon: '/images/ico_home.png' },
+    { id: 'calendar', label: '달력', icon: '/images/ico_calendar.png' },
+    { id: 'stats', label: '통계', icon: '/images/ico_statistics.png' },
+  ];
+  if (!isViewer) {
+    visibleTabs.push({ id: 'settings', label: '설정', icon: '/images/ico_settings.png' });
+  }
+
   return (
     <div className="min-h-screen max-w-md mx-auto bg-slate-50 pb-24">
       <header className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
         <h1 className="text-lg font-semibold">당직ON - ITI 당직관리</h1>
         <span className="text-xs text-slate-500">
-          {teachers.find((t) => t.id === currentTeacherId)?.name} 선생님
+          {isViewer ? (
+            <button
+              onClick={() => {
+                if (confirm('본인 선택을 다시 하시겠어요?')) {
+                  localStorage.removeItem('teacherId');
+                  window.location.reload();
+                }
+              }}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-50 text-blue-700 border border-blue-200"
+            >
+              <span>👁️</span>
+              <span>ITI관리자</span>
+            </button>
+          ) : (
+            displayName
+          )}
         </span>
       </header>
 
@@ -129,7 +198,7 @@ export default function Page() {
           <CalendarScreen assignments={assignments} currentTeacherId={currentTeacherId} />
         )}
         {tab === 'stats' && <StatsScreen assignments={assignments} teachers={teachers} />}
-        {tab === 'settings' && (
+        {tab === 'settings' && !isViewer && (
           <SettingsScreen
             teachers={teachers}
             currentTeacherId={currentTeacherId}
@@ -139,15 +208,12 @@ export default function Page() {
         )}
       </main>
 
-      <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-slate-200 grid grid-cols-4">
-        {(
-          [
-            { id: 'home', label: '홈', icon: '/images/ico_home.png' },
-            { id: 'calendar', label: '달력', icon: '/images/ico_calendar.png' },
-            { id: 'stats', label: '통계', icon: '/images/ico_statistics.png' },
-            { id: 'settings', label: '설정', icon: '/images/ico_settings.png' },
-          ] as { id: Tab; label: string; icon: string }[]
-        ).map((t) => (
+      <nav
+        className={`fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-slate-200 grid ${
+          isViewer ? 'grid-cols-3' : 'grid-cols-4'
+        }`}
+      >
+        {visibleTabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
