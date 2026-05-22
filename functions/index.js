@@ -12,7 +12,6 @@ initializeApp();
 const db = getFirestore();
 const messaging = getMessaging();
 
-// 공공데이터포털 API 키 (Firebase Secret)
 const holidayApiKey = defineSecret('HOLIDAY_API_KEY');
 
 /**
@@ -50,7 +49,20 @@ exports.dailyDutyNotification = onSchedule(
           title: '🔔 당직 알림',
           body: `오늘 당직 시간입니다 (오후 5:40)`,
         },
+        // ─── Android 설정 ───────────────────────────────
+        android: {
+          priority: 'high',            // 즉각 전달 (배터리 절약 모드 우회)
+          notification: {
+            channelId: 'duty_alert',   // 전용 채널 (기기 설정에서 관리 가능)
+            priority: 'high',          // 알림 우선순위 높음 → 소리 + 진동
+            defaultSound: true,        // 기기 기본 알림음
+            defaultVibrateTimings: true, // 기기 기본 진동
+            tag: 'duty_daily',         // 같은 tag면 이전 알림을 덮어씀 (중복 방지)
+          },
+        },
+        // ─── 웹(Android Chrome PWA) 설정 ──────────────
         webpush: {
+          headers: { Urgency: 'high' },
           fcmOptions: { link: '/' },
         },
       });
@@ -88,7 +100,18 @@ exports.notifySwapRequest = onDocumentCreated(
         title: '변경 요청 도착',
         body: `${fromName} 선생님이 당직 변경을 요청했습니다`,
       },
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'duty_alert',
+          priority: 'high',
+          defaultSound: true,
+          defaultVibrateTimings: true,
+          tag: 'duty_swap',
+        },
+      },
       webpush: {
+        headers: { Urgency: 'high' },
         fcmOptions: { link: '/?tab=settings' },
       },
     });
@@ -96,7 +119,7 @@ exports.notifySwapRequest = onDocumentCreated(
 );
 
 /**
- * 공휴일 자동 갱신 - 매년 12월 1일에 다음해 공휴일을 가져옴
+ * 공휴일 자동 갱신 - 매년 12월 1일
  */
 async function fetchHolidaysFromAPI(year, apiKey) {
   const result = {};
@@ -132,21 +155,13 @@ exports.fetchNextYearHolidays = onSchedule(
   },
   async () => {
     const nextYear = new Date().getFullYear() + 1;
-    console.log(`${nextYear}년 공휴일 데이터 가져오기 시작...`);
-
     const holidays = await fetchHolidaysFromAPI(nextYear, holidayApiKey.value());
-
-    if (Object.keys(holidays).length === 0) {
-      console.error('공휴일 데이터를 가져오지 못했습니다');
-      return;
-    }
-
+    if (Object.keys(holidays).length === 0) return;
     await db.collection('holidays').doc(String(nextYear)).set({
       year: nextYear,
       data: holidays,
       updatedAt: Date.now(),
     });
-
     console.log(`${nextYear}년 공휴일 ${Object.keys(holidays).length}개 저장 완료`);
   }
 );
@@ -159,14 +174,9 @@ exports.generateNextYearSchedule = onSchedule(
   },
   async () => {
     const nextYear = new Date().getFullYear() + 1;
-    console.log(`${nextYear}년 당직 일정 생성 시작...`);
-
     const teachersSnap = await db.collection('teachers').get();
     const teachers = teachersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    if (teachers.length === 0) {
-      console.error('선생님 명단이 없습니다');
-      return;
-    }
+    if (teachers.length === 0) return;
 
     const holidayDoc = await db.collection('holidays').doc(String(nextYear)).get();
     const holidays = holidayDoc.exists ? holidayDoc.data().data || {} : {};
@@ -186,39 +196,25 @@ exports.generateNextYearSchedule = onSchedule(
       if (day === 0 || day === 6) continue;
       if (holidays[dateStr]) continue;
 
-      const candidates = teachers.filter(
-        (t) => !(t.excludeWeekdays || []).includes(day)
-      );
+      const candidates = teachers.filter((t) => !(t.excludeWeekdays || []).includes(day));
       const pool = candidates.length > 0 ? candidates : teachers;
-
       const minCount = Math.min(...pool.map((c) => counts[c.id]));
       const tied = pool.filter((c) => counts[c.id] === minCount);
 
       let picked = tied[0];
       for (let i = 0; i < teachers.length; i++) {
         const t = teachers[(rotationIdx + i) % teachers.length];
-        if (tied.find((c) => c.id === t.id)) {
-          picked = t;
-          break;
-        }
+        if (tied.find((c) => c.id === t.id)) { picked = t; break; }
       }
 
       const ref = db.collection('assignments').doc(dateStr);
-      batch.set(ref, {
-        date: dateStr,
-        teacherId: picked.id,
-        teacherName: picked.name,
-      });
+      batch.set(ref, { date: dateStr, teacherId: picked.id, teacherName: picked.name });
       counts[picked.id]++;
       rotationIdx = teachers.findIndex((t) => t.id === picked.id) + 1;
       batchCount++;
 
-      if (batchCount >= 400) {
-        await batch.commit();
-        batchCount = 0;
-      }
+      if (batchCount >= 400) { await batch.commit(); batchCount = 0; }
     }
-
     if (batchCount > 0) await batch.commit();
     console.log(`${nextYear}년 당직 일정 생성 완료`);
   }
@@ -234,13 +230,11 @@ exports.manualFetchHolidays = onCall(
   async (request) => {
     const year = request.data?.year || new Date().getFullYear();
     const holidays = await fetchHolidaysFromAPI(year, holidayApiKey.value());
-
     await db.collection('holidays').doc(String(year)).set({
       year,
       data: holidays,
       updatedAt: Date.now(),
     });
-
     return { success: true, count: Object.keys(holidays).length, year };
   }
 );
