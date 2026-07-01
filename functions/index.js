@@ -186,6 +186,13 @@ exports.generateNextYearSchedule = onSchedule(
     const isNoDutyDate = (dateStr) =>
       noDutyRanges.some((r) => r.startDate <= dateStr && dateStr <= r.endDate);
 
+    const teacherExcludeSnap = await db.collection('teacherExcludeRanges').get();
+    const teacherExcludeRanges = teacherExcludeSnap.docs.map((d) => d.data());
+    const isTeacherExcluded = (teacherId, dateStr) =>
+      teacherExcludeRanges.some(
+        (r) => r.teacherId === teacherId && r.startDate <= dateStr && dateStr <= r.endDate
+      );
+
     const counts = {};
     teachers.forEach((t) => (counts[t.id] = 0));
     let rotationIdx = 0;
@@ -202,7 +209,9 @@ exports.generateNextYearSchedule = onSchedule(
       if (holidays[dateStr]) continue;
       if (isNoDutyDate(dateStr)) continue;
 
-      const candidates = teachers.filter((t) => !(t.excludeWeekdays || []).includes(day));
+      const candidates = teachers.filter(
+        (t) => !(t.excludeWeekdays || []).includes(day) && !isTeacherExcluded(t.id, dateStr)
+      );
       const pool = candidates.length > 0 ? candidates : teachers;
       const minCount = Math.min(...pool.map((c) => counts[c.id]));
       const tied = pool.filter((c) => counts[c.id] === minCount);

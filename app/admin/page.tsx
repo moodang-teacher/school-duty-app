@@ -24,6 +24,12 @@ import {
   addNoDutyRange,
   deleteNoDutyRange,
 } from '@/lib/noDutyRanges';
+import {
+  TeacherExcludeRange,
+  loadTeacherExcludeRanges,
+  addTeacherExcludeRange,
+  deleteTeacherExcludeRange,
+} from '@/lib/teacherExcludeRanges';
 import SplashScreen from '@/components/SplashScreen';
 
 export default function AdminPage() {
@@ -32,18 +38,28 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<string>('');
   const [holidayList, setHolidayList] = useState<{ year: string; count: number }[]>([]);
-  const [teacherCount, setTeacherCount] = useState(0);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [noDutyRangeList, setNoDutyRangeList] = useState<NoDutyRange[]>([]);
   const [rangeStart, setRangeStart] = useState('');
   const [rangeEnd, setRangeEnd] = useState('');
   const [rangeReason, setRangeReason] = useState('');
+  const [teacherExcludeRangeList, setTeacherExcludeRangeList] = useState<TeacherExcludeRange[]>([]);
+  const [excludeTeacherId, setExcludeTeacherId] = useState('');
+  const [excludeStart, setExcludeStart] = useState('');
+  const [excludeEnd, setExcludeEnd] = useState('');
+  const [excludeReason, setExcludeReason] = useState('');
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (!u) await signInAnonymously(auth);
       else {
         setReady(true);
-        await Promise.all([loadHolidayList(), loadTeacherCount(), loadNoDutyRangeList()]);
+        await Promise.all([
+          loadHolidayList(),
+          loadTeachers(),
+          loadNoDutyRangeList(),
+          loadTeacherExcludeRangeList(),
+        ]);
       }
     });
     return () => unsub();
@@ -107,9 +123,63 @@ export default function AdminPage() {
     }
   }
 
-  async function loadTeacherCount() {
+  async function loadTeachers() {
     const snap = await getDocs(collection(db, 'teachers'));
-    setTeacherCount(snap.size);
+    const list: Teacher[] = snap.docs.map((d) => ({
+      id: d.id,
+      ...(d.data() as Omit<Teacher, 'id'>),
+    }));
+    setTeachers(list);
+  }
+
+  async function loadTeacherExcludeRangeList() {
+    const snap = await getDocs(collection(db, 'teacherExcludeRanges'));
+    const list = snap.docs.map((d) => ({
+      id: d.id,
+      ...(d.data() as Omit<TeacherExcludeRange, 'id'>),
+    }));
+    setTeacherExcludeRangeList(list.sort((a, b) => a.startDate.localeCompare(b.startDate)));
+  }
+
+  async function handleAddTeacherExcludeRange() {
+    if (!excludeTeacherId || !excludeStart || !excludeEnd) {
+      setResult('✗ 실패: 선생님, 시작일, 종료일을 모두 입력하세요.');
+      return;
+    }
+    const [s, e] =
+      excludeStart <= excludeEnd ? [excludeStart, excludeEnd] : [excludeEnd, excludeStart];
+    setLoading(true);
+    setResult('');
+    try {
+      await addTeacherExcludeRange(excludeTeacherId, s, e, excludeReason.trim());
+      setExcludeTeacherId('');
+      setExcludeStart('');
+      setExcludeEnd('');
+      setExcludeReason('');
+      await loadTeacherExcludeRangeList();
+      setResult('✓ 선생님별 제외 기간이 추가되었습니다. 적용하려면 아래 "오늘부터 재생성"을 눌러주세요.');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setResult(`✗ 실패: ${msg}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDeleteTeacherExcludeRange(id: string) {
+    if (!confirm('이 제외 기간을 삭제할까요?\n\n반영하려면 일정 재생성이 필요합니다.')) return;
+    setLoading(true);
+    setResult('');
+    try {
+      await deleteTeacherExcludeRange(id);
+      await loadTeacherExcludeRangeList();
+      setResult('✓ 삭제되었습니다. 반영하려면 일정을 재생성하세요.');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setResult(`✗ 실패: ${msg}`);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function fetchHolidays() {
@@ -146,7 +216,7 @@ export default function AdminPage() {
     setResult('');
     try {
       const today = format(new Date(), 'yyyy-MM-dd');
-      await Promise.all([loadHolidays(), loadNoDutyRanges()]);
+      await Promise.all([loadHolidays(), loadNoDutyRanges(), loadTeacherExcludeRanges()]);
 
       const teachersSnap = await getDocs(collection(db, 'teachers'));
       const teachers: Teacher[] = teachersSnap.docs.map((d) => ({
@@ -212,7 +282,7 @@ export default function AdminPage() {
     setLoading(true);
     setResult('');
     try {
-      await Promise.all([loadHolidays(), loadNoDutyRanges()]);
+      await Promise.all([loadHolidays(), loadNoDutyRanges(), loadTeacherExcludeRanges()]);
 
       const teachersSnap = await getDocs(collection(db, 'teachers'));
       const teachers: Teacher[] = teachersSnap.docs.map((d) => ({
@@ -263,7 +333,7 @@ export default function AdminPage() {
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="text-slate-500">등록된 선생님</span>
-            <span className="font-medium">{teacherCount}명</span>
+            <span className="font-medium">{teachers.length}명</span>
           </div>
           <div className="flex justify-between">
             <span className="text-slate-500">공휴일 데이터</span>
@@ -358,6 +428,87 @@ export default function AdminPage() {
           />
           <button
             onClick={handleAddNoDutyRange}
+            disabled={loading}
+            className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md disabled:bg-slate-300"
+          >
+            추가
+          </button>
+        </div>
+      </section>
+
+      <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4">
+        <div className="text-sm font-medium mb-2">선생님별 당직 제외</div>
+        <p className="text-xs text-slate-500 mb-3">
+          특정 선생님이 특정 기간(예: 개인 사정으로 미출근) 동안 당직에서 제외됩니다.
+          다른 선생님들은 이 기간에도 평소대로 순환 배정됩니다.
+          <br />
+          추가/삭제 후 아래에서 일정을 재생성해야 실제 일정에 반영됩니다.
+        </p>
+
+        {teacherExcludeRangeList.length === 0 ? (
+          <div className="text-xs text-slate-400 mb-3">등록된 제외 기간 없음</div>
+        ) : (
+          <div className="space-y-1 mb-3">
+            {teacherExcludeRangeList.map((r) => (
+              <div
+                key={r.id}
+                className="flex items-center justify-between text-xs bg-slate-50 rounded-md px-2 py-1.5"
+              >
+                <span>
+                  {teachers.find((t) => t.id === r.teacherId)?.name ?? '(알 수 없음)'}:{' '}
+                  {r.startDate} ~ {r.endDate}
+                  {r.reason && <span className="text-slate-500"> ({r.reason})</span>}
+                </span>
+                <button
+                  onClick={() => handleDeleteTeacherExcludeRange(r.id)}
+                  disabled={loading}
+                  className="text-red-600 disabled:text-slate-300"
+                >
+                  삭제
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mb-2">
+          <select
+            value={excludeTeacherId}
+            onChange={(e) => setExcludeTeacherId(e.target.value)}
+            className="w-full px-2 py-2 border border-slate-200 rounded-md text-sm"
+          >
+            <option value="">선생님 선택</option>
+            {teachers.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex gap-2 mb-2">
+          <input
+            type="date"
+            value={excludeStart}
+            onChange={(e) => setExcludeStart(e.target.value)}
+            className="flex-1 px-2 py-2 border border-slate-200 rounded-md text-sm"
+          />
+          <input
+            type="date"
+            value={excludeEnd}
+            onChange={(e) => setExcludeEnd(e.target.value)}
+            className="flex-1 px-2 py-2 border border-slate-200 rounded-md text-sm"
+          />
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={excludeReason}
+            onChange={(e) => setExcludeReason(e.target.value)}
+            placeholder="사유 (선택, 예: 개인 사정)"
+            className="flex-1 px-3 py-2 border border-slate-200 rounded-md text-sm"
+          />
+          <button
+            onClick={handleAddTeacherExcludeRange}
             disabled={loading}
             className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md disabled:bg-slate-300"
           >

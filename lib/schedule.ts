@@ -1,6 +1,7 @@
 import { format, addDays, getDay } from 'date-fns';
 import { isHoliday } from './holidays';
 import { isNoDutyRangeDate } from './noDutyRanges';
+import { isTeacherExcludedOnDate } from './teacherExcludeRanges';
 
 export interface Teacher {
   id: string;
@@ -90,7 +91,9 @@ export function generateSchedule(
     const dayOfWeek = getDay(cursor);
 
     // 후보 선생님 중에서 (1) 해당 요일 제외 안 한 사람 (2) 누적 횟수 최소
-    const candidates = teachers.filter((t) => !t.excludeWeekdays.includes(dayOfWeek));
+    const candidates = teachers.filter(
+      (t) => !t.excludeWeekdays.includes(dayOfWeek) && !isTeacherExcludedOnDate(t.id, dateStr)
+    );
     if (candidates.length === 0) {
       // 모두가 제외한 요일이면 그냥 순번대로
       const t = teachers[rotationIdx % teachers.length];

@@ -8,6 +8,7 @@ import { Teacher, DutyAssignment, generateSchedule } from '@/lib/schedule';
 import { setupForegroundListener } from '@/lib/notifications';
 import { loadHolidays } from '@/lib/holidays';
 import { loadNoDutyRanges } from '@/lib/noDutyRanges';
+import { loadTeacherExcludeRanges } from '@/lib/teacherExcludeRanges';
 import HomeScreen from '@/components/HomeScreen';
 import CalendarScreen from '@/components/CalendarScreen';
 import StatsScreen from '@/components/StatsScreen';
@@ -43,7 +44,7 @@ export default function Page() {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      await Promise.all([loadHolidays(), loadNoDutyRanges()]);
+      await Promise.all([loadHolidays(), loadNoDutyRanges(), loadTeacherExcludeRanges()]);
 
       const teachersSnap = await getDocs(collection(db, 'teachers'));
       const teachersList: Teacher[] = teachersSnap.docs.map((d) => ({
