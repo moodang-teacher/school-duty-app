@@ -7,6 +7,7 @@ import { collection, getDocs, doc, setDoc } from 'firebase/firestore';
 import { Teacher, DutyAssignment, generateSchedule } from '@/lib/schedule';
 import { setupForegroundListener } from '@/lib/notifications';
 import { loadHolidays } from '@/lib/holidays';
+import { loadNoDutyRanges } from '@/lib/noDutyRanges';
 import HomeScreen from '@/components/HomeScreen';
 import CalendarScreen from '@/components/CalendarScreen';
 import StatsScreen from '@/components/StatsScreen';
@@ -42,7 +43,7 @@ export default function Page() {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      await loadHolidays();
+      await Promise.all([loadHolidays(), loadNoDutyRanges()]);
 
       const teachersSnap = await getDocs(collection(db, 'teachers'));
       const teachersList: Teacher[] = teachersSnap.docs.map((d) => ({

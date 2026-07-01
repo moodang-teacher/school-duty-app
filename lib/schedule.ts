@@ -1,5 +1,6 @@
 import { format, addDays, getDay } from 'date-fns';
 import { isHoliday } from './holidays';
+import { isNoDutyRangeDate } from './noDutyRanges';
 
 export interface Teacher {
   id: string;
@@ -31,7 +32,7 @@ export function isWeekend(dateStr: string): boolean {
 }
 
 export function isDutyDay(dateStr: string): boolean {
-  return !isWeekend(dateStr) && !isHoliday(dateStr);
+  return !isWeekend(dateStr) && !isHoliday(dateStr) && !isNoDutyRangeDate(dateStr);
 }
 
 /**

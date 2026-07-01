@@ -4,6 +4,7 @@ import { format, parseISO, differenceInCalendarDays } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { Teacher, DutyAssignment } from '@/lib/schedule';
 import { getHolidayName, isHoliday } from '@/lib/holidays';
+import { isNoDutyRangeDate, getNoDutyReason } from '@/lib/noDutyRanges';
 import { isWeekend } from '@/lib/schedule';
 
 interface Props {
@@ -38,6 +39,8 @@ export default function HomeScreen({ assignments, currentTeacherId }: Props) {
           <div className="text-xl text-slate-800 font-semibold">주말 — 당직 없음</div>
         ) : isHoliday(today) ? (
           <div className="text-xl text-slate-800 font-semibold">{getHolidayName(today)} — 당직 없음</div>
+        ) : isNoDutyRangeDate(today) ? (
+          <div className="text-xl text-slate-800 font-semibold">{getNoDutyReason(today)} — 당직 없음</div>
         ) : todayDuty ? (
           <div>
             <div className="text-xl font-semibold">{todayDuty.teacherName} 선생님</div>

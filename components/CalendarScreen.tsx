@@ -14,6 +14,7 @@ import {
 import { ko } from 'date-fns/locale';
 import { DutyAssignment, isWeekend } from '@/lib/schedule';
 import { isHoliday, getHolidayName } from '@/lib/holidays';
+import { isNoDutyRangeDate, getNoDutyReason } from '@/lib/noDutyRanges';
 
 interface Props {
   assignments: DutyAssignment[];
@@ -68,6 +69,7 @@ export default function CalendarScreen({ assignments, currentTeacherId }: Props)
           const dateStr = format(d, 'yyyy-MM-dd');
           const a = assignments.find((x) => x.date === dateStr);
           const holiday = isHoliday(dateStr);
+          const noDuty = isNoDutyRangeDate(dateStr);
           const weekend = isWeekend(dateStr);
           const isMine = a?.teacherId === currentTeacherId;
 
@@ -79,7 +81,7 @@ export default function CalendarScreen({ assignments, currentTeacherId }: Props)
                   ? 'bg-blue-100 border border-blue-300'
                   : a
                   ? 'bg-blue-50'
-                  : holiday
+                  : holiday || noDuty
                   ? 'bg-red-50'
                   : weekend
                   ? 'bg-slate-50'
@@ -88,7 +90,11 @@ export default function CalendarScreen({ assignments, currentTeacherId }: Props)
             >
               <span
                 className={`text-xs ${
-                  holiday ? 'text-red-600' : weekend ? 'text-slate-400' : 'text-slate-700'
+                  holiday || noDuty
+                    ? 'text-red-600'
+                    : weekend
+                    ? 'text-slate-400'
+                    : 'text-slate-700'
                 }`}
               >
                 {format(d, 'd')}
@@ -98,9 +104,9 @@ export default function CalendarScreen({ assignments, currentTeacherId }: Props)
                   {a.teacherName.slice(0, 3)}
                 </span>
               )}
-              {holiday && (
+              {(holiday || noDuty) && (
                 <span className="text-[8px] text-red-600 truncate w-full text-center leading-tight">
-                  {getHolidayName(dateStr)?.slice(0, 3)}
+                  {(getHolidayName(dateStr) ?? getNoDutyReason(dateStr))?.slice(0, 3)}
                 </span>
               )}
             </div>
@@ -116,7 +122,7 @@ export default function CalendarScreen({ assignments, currentTeacherId }: Props)
           <span className="w-3 h-3 bg-blue-50 rounded" />다른 분 당직
         </div>
         <div className="flex items-center gap-1">
-          <span className="w-3 h-3 bg-red-50 rounded" />공휴일
+          <span className="w-3 h-3 bg-red-50 rounded" />공휴일 · 비적용기간
         </div>
       </div>
     </div>

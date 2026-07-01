@@ -181,6 +181,11 @@ exports.generateNextYearSchedule = onSchedule(
     const holidayDoc = await db.collection('holidays').doc(String(nextYear)).get();
     const holidays = holidayDoc.exists ? holidayDoc.data().data || {} : {};
 
+    const noDutyRangesSnap = await db.collection('noDutyRanges').get();
+    const noDutyRanges = noDutyRangesSnap.docs.map((d) => d.data());
+    const isNoDutyDate = (dateStr) =>
+      noDutyRanges.some((r) => r.startDate <= dateStr && dateStr <= r.endDate);
+
     const counts = {};
     teachers.forEach((t) => (counts[t.id] = 0));
     let rotationIdx = 0;
@@ -195,6 +200,7 @@ exports.generateNextYearSchedule = onSchedule(
       const day = d.getDay();
       if (day === 0 || day === 6) continue;
       if (holidays[dateStr]) continue;
+      if (isNoDutyDate(dateStr)) continue;
 
       const candidates = teachers.filter((t) => !(t.excludeWeekdays || []).includes(day));
       const pool = candidates.length > 0 ? candidates : teachers;

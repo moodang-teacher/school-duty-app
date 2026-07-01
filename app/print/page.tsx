@@ -32,6 +32,9 @@ export default function PrintPage() {
   const [loading, setLoading] = useState(true);
   const [assignments, setAssignments] = useState<DutyAssignment[]>([]);
   const [holidays, setHolidays] = useState<Record<string, string>>({});
+  const [noDutyRanges, setNoDutyRanges] = useState<
+    { startDate: string; endDate: string; reason: string }[]
+  >([]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -54,9 +57,19 @@ export default function PrintPage() {
       const holData = (holSnap.exists() ? holSnap.data().data : {}) as Record<string, string>;
       setHolidays(holData);
 
+      const rangeSnap = await getDocs(collection(db, 'noDutyRanges'));
+      setNoDutyRanges(
+        rangeSnap.docs.map((d) => d.data() as { startDate: string; endDate: string; reason: string })
+      );
+
       setLoading(false);
     })();
   }, [ready, year, month]);
+
+  function noDutyReasonFor(dateStr: string): string | null {
+    const hit = noDutyRanges.find((r) => r.startDate <= dateStr && dateStr <= r.endDate);
+    return hit ? hit.reason : null;
+  }
 
   const rows: Row[] = (() => {
     const list: Row[] = [];
@@ -70,11 +83,18 @@ export default function PrintPage() {
       const dayIdx = getDay(d);
       if (dayIdx === 0 || dayIdx === 6) continue;
 
+      const noDutyReason = noDutyReasonFor(dateStr);
       if (holidays[dateStr]) {
         list.push({
           type: 'holiday',
           date: dateStr,
           holidayName: holidays[dateStr],
+        });
+      } else if (noDutyReason) {
+        list.push({
+          type: 'holiday',
+          date: dateStr,
+          holidayName: noDutyReason,
         });
       } else {
         const a = assignments.find((x) => x.date === dateStr);

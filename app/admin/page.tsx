@@ -18,6 +18,12 @@ import {
   generateSchedule,
 } from '@/lib/schedule';
 import { loadHolidays } from '@/lib/holidays';
+import {
+  NoDutyRange,
+  loadNoDutyRanges,
+  addNoDutyRange,
+  deleteNoDutyRange,
+} from '@/lib/noDutyRanges';
 import SplashScreen from '@/components/SplashScreen';
 
 export default function AdminPage() {
@@ -27,13 +33,17 @@ export default function AdminPage() {
   const [result, setResult] = useState<string>('');
   const [holidayList, setHolidayList] = useState<{ year: string; count: number }[]>([]);
   const [teacherCount, setTeacherCount] = useState(0);
+  const [noDutyRangeList, setNoDutyRangeList] = useState<NoDutyRange[]>([]);
+  const [rangeStart, setRangeStart] = useState('');
+  const [rangeEnd, setRangeEnd] = useState('');
+  const [rangeReason, setRangeReason] = useState('');
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (!u) await signInAnonymously(auth);
       else {
         setReady(true);
-        await Promise.all([loadHolidayList(), loadTeacherCount()]);
+        await Promise.all([loadHolidayList(), loadTeacherCount(), loadNoDutyRangeList()]);
       }
     });
     return () => unsub();
@@ -46,6 +56,55 @@ export default function AdminPage() {
       count: Object.keys(d.data().data || {}).length,
     }));
     setHolidayList(list.sort((a, b) => a.year.localeCompare(b.year)));
+  }
+
+  async function loadNoDutyRangeList() {
+    const snap = await getDocs(collection(db, 'noDutyRanges'));
+    const list = snap.docs.map((d) => ({
+      id: d.id,
+      ...(d.data() as Omit<NoDutyRange, 'id'>),
+    }));
+    setNoDutyRangeList(list.sort((a, b) => a.startDate.localeCompare(b.startDate)));
+  }
+
+  async function handleAddNoDutyRange() {
+    if (!rangeStart || !rangeEnd || !rangeReason.trim()) {
+      setResult('✗ 실패: 시작일, 종료일, 사유를 모두 입력하세요.');
+      return;
+    }
+    const [s, e] = rangeStart <= rangeEnd ? [rangeStart, rangeEnd] : [rangeEnd, rangeStart];
+    setLoading(true);
+    setResult('');
+    try {
+      await addNoDutyRange(s, e, rangeReason.trim());
+      setRangeStart('');
+      setRangeEnd('');
+      setRangeReason('');
+      await loadNoDutyRangeList();
+      setResult('✓ 당직 비적용 기간이 추가되었습니다. 적용하려면 아래 "오늘부터 재생성"을 눌러주세요.');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setResult(`✗ 실패: ${msg}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDeleteNoDutyRange(id: string) {
+    if (!confirm('이 기간을 삭제할까요?\n\n기존에 생성된 일정은 자동으로 되돌아가지 않습니다. 반영하려면 재생성이 필요합니다.'))
+      return;
+    setLoading(true);
+    setResult('');
+    try {
+      await deleteNoDutyRange(id);
+      await loadNoDutyRangeList();
+      setResult('✓ 삭제되었습니다. 반영하려면 일정을 재생성하세요.');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setResult(`✗ 실패: ${msg}`);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function loadTeacherCount() {
@@ -87,7 +146,7 @@ export default function AdminPage() {
     setResult('');
     try {
       const today = format(new Date(), 'yyyy-MM-dd');
-      await loadHolidays();
+      await Promise.all([loadHolidays(), loadNoDutyRanges()]);
 
       const teachersSnap = await getDocs(collection(db, 'teachers'));
       const teachers: Teacher[] = teachersSnap.docs.map((d) => ({
@@ -153,7 +212,7 @@ export default function AdminPage() {
     setLoading(true);
     setResult('');
     try {
-      await loadHolidays();
+      await Promise.all([loadHolidays(), loadNoDutyRanges()]);
 
       const teachersSnap = await getDocs(collection(db, 'teachers'));
       const teachers: Teacher[] = teachersSnap.docs.map((d) => ({
@@ -237,6 +296,72 @@ export default function AdminPage() {
             className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md disabled:bg-slate-300"
           >
             {loading ? '처리중...' : '가져오기'}
+          </button>
+        </div>
+      </section>
+
+      <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4">
+        <div className="text-sm font-medium mb-2">당직 비적용 기간</div>
+        <p className="text-xs text-slate-500 mb-3">
+          방학 등 당직이 필요 없는 기간을 등록합니다. 이 기간의 날짜는 당직 배정에서
+          제외됩니다.
+          <br />
+          추가/삭제 후 아래에서 일정을 재생성해야 실제 일정에 반영됩니다.
+        </p>
+
+        {noDutyRangeList.length === 0 ? (
+          <div className="text-xs text-slate-400 mb-3">등록된 기간 없음</div>
+        ) : (
+          <div className="space-y-1 mb-3">
+            {noDutyRangeList.map((r) => (
+              <div
+                key={r.id}
+                className="flex items-center justify-between text-xs bg-slate-50 rounded-md px-2 py-1.5"
+              >
+                <span>
+                  {r.startDate} ~ {r.endDate}{' '}
+                  <span className="text-slate-500">({r.reason})</span>
+                </span>
+                <button
+                  onClick={() => handleDeleteNoDutyRange(r.id)}
+                  disabled={loading}
+                  className="text-red-600 disabled:text-slate-300"
+                >
+                  삭제
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex gap-2 mb-2">
+          <input
+            type="date"
+            value={rangeStart}
+            onChange={(e) => setRangeStart(e.target.value)}
+            className="flex-1 px-2 py-2 border border-slate-200 rounded-md text-sm"
+          />
+          <input
+            type="date"
+            value={rangeEnd}
+            onChange={(e) => setRangeEnd(e.target.value)}
+            className="flex-1 px-2 py-2 border border-slate-200 rounded-md text-sm"
+          />
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={rangeReason}
+            onChange={(e) => setRangeReason(e.target.value)}
+            placeholder="예: 여름방학"
+            className="flex-1 px-3 py-2 border border-slate-200 rounded-md text-sm"
+          />
+          <button
+            onClick={handleAddNoDutyRange}
+            disabled={loading}
+            className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md disabled:bg-slate-300"
+          >
+            추가
           </button>
         </div>
       </section>
