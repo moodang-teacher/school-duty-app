@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { collection, getDocs, doc, getDoc, query, where } from 'firebase/firestore';
@@ -24,6 +24,37 @@ interface Row {
   holidayName?: string;
 }
 
+// @page 설정(size: A4, margin: 12mm 24mm)과 반드시 일치시켜야 함
+const MM_TO_PX = 96 / 25.4;
+const PAGE_HEIGHT_MM = 297;
+const PAGE_WIDTH_MM = 210;
+const PAGE_MARGIN_V_MM = 12; // 상하 여백
+const PAGE_MARGIN_H_MM = 24; // 좌우 여백
+const MIN_PRINT_SCALE = 0.55; // 이보다 작아지면 가독성이 떨어져 축소를 멈춤
+
+/** 인쇄될 실제 너비로 복제해 높이를 재고, A4 한 장에 들어가도록 필요한 축소 비율을 계산 */
+function computePrintScale(source: HTMLElement): number {
+  const contentHeightPx = (PAGE_HEIGHT_MM - PAGE_MARGIN_V_MM * 2) * MM_TO_PX * 0.85; // 여유 15% (측정 오차 및 브라우저별 렌더링 차이 대비)
+  const contentWidthPx = (PAGE_WIDTH_MM - PAGE_MARGIN_H_MM * 2) * MM_TO_PX;
+
+  const clone = source.cloneNode(true) as HTMLElement;
+  clone.style.position = 'fixed';
+  clone.style.top = '-99999px';
+  clone.style.left = '-99999px';
+  clone.style.visibility = 'hidden';
+  clone.style.width = `${contentWidthPx}px`;
+  clone.style.maxWidth = 'none';
+  clone.style.padding = '0';
+  clone.style.margin = '0';
+  clone.style.boxShadow = 'none';
+  document.body.appendChild(clone);
+  const actualHeight = clone.scrollHeight;
+  document.body.removeChild(clone);
+
+  if (actualHeight <= contentHeightPx) return 1;
+  return Math.max(MIN_PRINT_SCALE, contentHeightPx / actualHeight);
+}
+
 export default function PrintPage() {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -35,6 +66,14 @@ export default function PrintPage() {
   const [noDutyRanges, setNoDutyRanges] = useState<
     { startDate: string; endDate: string; reason: string }[]
   >([]);
+  const [printScale, setPrintScale] = useState(1);
+  const printPageRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const reset = () => setPrintScale(1);
+    window.addEventListener('afterprint', reset);
+    return () => window.removeEventListener('afterprint', reset);
+  }, []);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -132,7 +171,15 @@ export default function PrintPage() {
     firstRow?.date && lastRow?.date ? `${firstRow.date} ~ ${lastRow.date}` : '';
 
   function handlePrint() {
-    window.print();
+    const el = printPageRef.current;
+    const scale = el ? computePrintScale(el) : 1;
+    setPrintScale(scale);
+    // 스타일이 반영된 뒤(2프레임 대기) 인쇄 대화상자를 연다
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.print();
+      });
+    });
   }
 
   function changeMonth(delta: number) {
@@ -159,7 +206,7 @@ export default function PrintPage() {
       <style jsx global>{`
         @page {
           size: A4 portrait;
-          margin: 12mm;
+          margin: 12mm 24mm;
         }
         @media print {
           .no-print {
@@ -173,6 +220,7 @@ export default function PrintPage() {
             margin: 0 !important;
             padding: 0 !important;
             max-width: none !important;
+            zoom: var(--print-zoom, 1);
           }
         }
         .print-page {
@@ -186,10 +234,9 @@ export default function PrintPage() {
         .print-table th,
         .print-table td {
           border: 1px solid #000;
-          padding: 3px 4px;
+          padding: 6px 0;
           text-align: center;
           vertical-align: middle;
-          height: 36px;
         }
         .print-table th {
           background: #f5f5f5;
@@ -285,7 +332,11 @@ export default function PrintPage() {
       </div>
 
       {/* 인쇄 영역 */}
-      <div className="print-page max-w-4xl mx-auto bg-white p-8 my-4 shadow-md">
+      <div
+        ref={printPageRef}
+        className="print-page max-w-4xl mx-auto bg-white p-8 my-4 shadow-md"
+        style={{ '--print-zoom': printScale } as React.CSSProperties}
+      >
         {/* 제목 */}
         <h1
           style={{
