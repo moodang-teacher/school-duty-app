@@ -3,20 +3,24 @@
 import { useEffect, useState, useRef } from 'react';
 import SplashScreen from './SplashScreen';
 
+const STORAGE_KEY = 'duty-on-app-version';
+
 /**
  * 자동 업데이트 체커
  *
  * 동작:
- * 1. 앱 첫 로드 시 현재 버전을 저장
+ * 1. 앱 첫 로드 시 현재 버전을 localStorage에 저장 (기기에 설치된 PWA는
+ *    모바일 OS에 의해 자주 완전히 종료됐다가 새로 켜지므로, 메모리에만
+ *    기준 버전을 두면 켤 때마다 기준이 리셋되어 배너가 뜰 기회가 없다)
  * 2. 1분마다 /api/version에서 최신 버전을 확인
- * 3. 다르면 화면 하단에 업데이트 알림 띠 표시
- * 4. 사용자가 "업데이트" 누르면 캐시 비우고 새로고침
+ * 3. 저장된 버전과 다르면 화면 하단에 업데이트 알림 띠 표시
+ * 4. 사용자가 "업데이트" 누르면 캐시 비우고 저장된 버전을 갱신한 뒤 새로고침
  */
 export default function UpdateChecker() {
   const [showBanner, setShowBanner] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [progress, setProgress] = useState(0);
-  const currentVersionRef = useRef<string | null>(null);
+  const latestVersionRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,11 +43,24 @@ export default function UpdateChecker() {
       const v = await fetchVersion();
       if (cancelled || !v) return;
 
-      if (currentVersionRef.current === null) {
-        // 첫 호출 - 현재 버전 저장만
-        currentVersionRef.current = v;
-      } else if (currentVersionRef.current !== v) {
-        // 버전 달라짐 - 업데이트 띠 표시
+      let stored: string | null = null;
+      try {
+        stored = localStorage.getItem(STORAGE_KEY);
+      } catch {
+        // 프라이빗 브라우징 등으로 localStorage 접근 불가 - 업데이트 확인 건너뜀
+        return;
+      }
+
+      if (stored === null) {
+        // 이 기기에서 처음 확인하는 경우 - 현재 버전을 기준으로 저장
+        try {
+          localStorage.setItem(STORAGE_KEY, v);
+        } catch {
+          /* no-op */
+        }
+      } else if (stored !== v) {
+        // 저장된 버전과 다름 - 업데이트 띠 표시
+        latestVersionRef.current = v;
         setShowBanner(true);
       }
     }
@@ -95,7 +112,16 @@ export default function UpdateChecker() {
     clearInterval(progressTimer);
     setProgress(100);
 
-    // 3. 강제 새로고침 (캐시 우회)
+    // 3. 기준 버전 갱신 (없으면 새로고침 후 곧바로 다시 배너가 뜸)
+    if (latestVersionRef.current) {
+      try {
+        localStorage.setItem(STORAGE_KEY, latestVersionRef.current);
+      } catch {
+        /* no-op */
+      }
+    }
+
+    // 4. 강제 새로고침 (캐시 우회)
     setTimeout(() => window.location.reload(), 300);
   }
 
