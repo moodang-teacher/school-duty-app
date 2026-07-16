@@ -10,6 +10,8 @@ import {
   doc,
   deleteDoc,
   setDoc,
+  query,
+  where,
 } from 'firebase/firestore';
 import { format } from 'date-fns';
 import {
@@ -229,7 +231,13 @@ export default function AdminPage() {
         return;
       }
 
-      const assignSnap = await getDocs(collection(db, 'assignments'));
+      const assignSnap = await getDocs(
+        query(
+          collection(db, 'assignments'),
+          where('date', '>=', `${year}-01-01`),
+          where('date', '<=', `${year}-12-31`)
+        )
+      );
       const allAssignments: DutyAssignment[] = assignSnap.docs.map(
         (d) => d.data() as DutyAssignment
       );
@@ -295,9 +303,14 @@ export default function AdminPage() {
         return;
       }
 
-      const snap = await getDocs(collection(db, 'assignments'));
-      const toDelete = snap.docs.filter((d) => d.id.startsWith(`${year}-`));
-      await Promise.all(toDelete.map((d) => deleteDoc(doc(db, 'assignments', d.id))));
+      const snap = await getDocs(
+        query(
+          collection(db, 'assignments'),
+          where('date', '>=', `${year}-01-01`),
+          where('date', '<=', `${year}-12-31`)
+        )
+      );
+      await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, 'assignments', d.id))));
 
       const newAssignments = generateSchedule(
         teachers,

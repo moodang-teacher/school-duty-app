@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
-import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, query, where } from 'firebase/firestore';
 import {
   format,
   parseISO,
@@ -48,16 +48,28 @@ export default function PrintPage() {
     if (!ready) return;
     (async () => {
       setLoading(true);
-      const assignSnap = await getDocs(collection(db, 'assignments'));
+      const startStr = `${year}-01-01`;
+      const endStr = `${year}-12-31`;
+
+      const [assignSnap, holSnap, rangeSnap] = await Promise.all([
+        getDocs(
+          query(
+            collection(db, 'assignments'),
+            where('date', '>=', startStr),
+            where('date', '<=', endStr)
+          )
+        ),
+        getDoc(doc(db, 'holidays', String(year))),
+        getDocs(collection(db, 'noDutyRanges')),
+      ]);
+
       const all: DutyAssignment[] = assignSnap.docs.map((d) => d.data() as DutyAssignment);
       const monthPrefix = `${year}-${String(month).padStart(2, '0')}`;
       setAssignments(all.filter((a) => a.date.startsWith(monthPrefix)));
 
-      const holSnap = await getDoc(doc(db, 'holidays', String(year)));
       const holData = (holSnap.exists() ? holSnap.data().data : {}) as Record<string, string>;
       setHolidays(holData);
 
-      const rangeSnap = await getDocs(collection(db, 'noDutyRanges'));
       setNoDutyRanges(
         rangeSnap.docs.map((d) => d.data() as { startDate: string; endDate: string; reason: string })
       );

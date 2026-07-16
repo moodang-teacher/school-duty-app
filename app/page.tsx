@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged, signInAnonymously, User } from 'firebase/auth';
-import { collection, getDocs, doc, setDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, query, where } from 'firebase/firestore';
 import { Teacher, DutyAssignment, generateSchedule } from '@/lib/schedule';
-import { setupForegroundListener } from '@/lib/notifications';
+import { setupForegroundListener, syncNotificationToken } from '@/lib/notifications';
 import { loadHolidays } from '@/lib/holidays';
 import { loadNoDutyRanges } from '@/lib/noDutyRanges';
 import { loadTeacherExcludeRanges } from '@/lib/teacherExcludeRanges';
@@ -44,21 +44,30 @@ export default function Page() {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      await Promise.all([loadHolidays(), loadNoDutyRanges(), loadTeacherExcludeRanges()]);
+      const currentYear = new Date().getFullYear();
+      const startStr = `${currentYear}-01-01`;
+      const endStr = `${currentYear}-12-31`;
 
-      const teachersSnap = await getDocs(collection(db, 'teachers'));
+      const [, teachersSnap, assignSnap] = await Promise.all([
+        Promise.all([loadHolidays(), loadNoDutyRanges(), loadTeacherExcludeRanges()]),
+        getDocs(collection(db, 'teachers')),
+        getDocs(
+          query(
+            collection(db, 'assignments'),
+            where('date', '>=', startStr),
+            where('date', '<=', endStr)
+          )
+        ),
+      ]);
+
       const teachersList: Teacher[] = teachersSnap.docs.map((d) => ({
         id: d.id,
         ...(d.data() as Omit<Teacher, 'id'>),
       }));
 
-      const assignSnap = await getDocs(collection(db, 'assignments'));
       let assignList: DutyAssignment[] = assignSnap.docs.map((d) => d.data() as DutyAssignment);
 
       if (assignList.length === 0 && teachersList.length > 0) {
-        const today = new Date();
-        const startStr = `${today.getFullYear()}-01-01`;
-        const endStr = `${today.getFullYear()}-12-31`;
         assignList = generateSchedule(teachersList, startStr, endStr);
         await Promise.all(
           assignList.map((a) => setDoc(doc(db, 'assignments', a.date), a))
@@ -83,6 +92,12 @@ export default function Page() {
       setTab('home');
     }
   }, [isViewer, tab]);
+
+  // 앱 실행 시마다 알림 권한이 이미 허용된 상태면 토큰을 최신 상태로 재등록
+  useEffect(() => {
+    if (!currentTeacherId || isViewer) return;
+    syncNotificationToken(currentTeacherId);
+  }, [currentTeacherId, isViewer]);
 
   if (loading) {
     return <SplashScreen />;

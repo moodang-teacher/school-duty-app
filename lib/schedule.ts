@@ -57,6 +57,11 @@ export function generateSchedule(
   const counts: Record<string, number> = {};
   teachers.forEach((t) => (counts[t.id] = 0));
 
+  // 과거에 이미 수행한 당직 횟수를 누적하여 형평성 계산에 반영
+  existingAssignments.forEach((a) => {
+    if (counts[a.teacherId] !== undefined) counts[a.teacherId]++;
+  });
+
   // 기존 교환 내역 반영
   const swapMap: Record<string, string> = {};
   existingAssignments.forEach((a) => {

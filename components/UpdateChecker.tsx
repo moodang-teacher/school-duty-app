@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
+import SplashScreen from './SplashScreen';
 
 /**
  * 자동 업데이트 체커
@@ -13,6 +14,8 @@ import { useEffect, useState, useRef } from 'react';
  */
 export default function UpdateChecker() {
   const [showBanner, setShowBanner] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [progress, setProgress] = useState(0);
   const currentVersionRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -65,6 +68,15 @@ export default function UpdateChecker() {
   }, []);
 
   async function handleUpdate() {
+    setUpdating(true);
+    setProgress(8);
+
+    // 실제 캐시 정리 작업은 순식간에 끝나는 경우가 많아,
+    // 진행 상태를 체감할 수 있도록 진행률을 서서히 채워준다.
+    const progressTimer = setInterval(() => {
+      setProgress((p) => (p < 90 ? p + Math.random() * 12 : p));
+    }, 200);
+
     try {
       // 1. Service Worker 모두 해제 (PWA의 캐시된 자원 무효화)
       if ('serviceWorker' in navigator) {
@@ -79,8 +91,16 @@ export default function UpdateChecker() {
     } catch (e) {
       console.warn('캐시 정리 실패:', e);
     }
+
+    clearInterval(progressTimer);
+    setProgress(100);
+
     // 3. 강제 새로고침 (캐시 우회)
-    window.location.reload();
+    setTimeout(() => window.location.reload(), 300);
+  }
+
+  if (updating) {
+    return <SplashScreen message="새 버전을 적용하는 중입니다..." progress={progress} />;
   }
 
   if (!showBanner) return null;

@@ -39,18 +39,20 @@ export async function loadHolidays(): Promise<void> {
   const currentYear = new Date().getFullYear();
   const years = [currentYear, currentYear + 1]; // 올해 + 내년
 
-  for (const year of years) {
-    try {
-      const snap = await getDoc(doc(db, 'holidays', String(year)));
-      if (snap.exists()) {
-        const data = snap.data().data as HolidayMap;
-        holidayCache[String(year)] = data;
-        combinedHolidays = { ...combinedHolidays, ...data };
+  await Promise.all(
+    years.map(async (year) => {
+      try {
+        const snap = await getDoc(doc(db, 'holidays', String(year)));
+        if (snap.exists()) {
+          const data = snap.data().data as HolidayMap;
+          holidayCache[String(year)] = data;
+          combinedHolidays = { ...combinedHolidays, ...data };
+        }
+      } catch (e) {
+        console.warn(`공휴일 데이터 로드 실패 (${year}):`, e);
       }
-    } catch (e) {
-      console.warn(`공휴일 데이터 로드 실패 (${year}):`, e);
-    }
-  }
+    })
+  );
   cacheLoaded = true;
 }
 
