@@ -24,17 +24,19 @@ interface Row {
   holidayName?: string;
 }
 
-// @page 설정(size: A4, margin: 18mm 24mm)과 반드시 일치시켜야 함
+// @page 설정(size: A4, margin: 36mm 24mm 18mm 24mm)과 반드시 일치시켜야 함
 const MM_TO_PX = 96 / 25.4;
 const PAGE_HEIGHT_MM = 297;
 const PAGE_WIDTH_MM = 210;
-const PAGE_MARGIN_V_MM = 18; // 상하 여백
+const PAGE_MARGIN_TOP_MM = 36; // 상단 여백
+const PAGE_MARGIN_BOTTOM_MM = 18; // 하단 여백
 const PAGE_MARGIN_H_MM = 24; // 좌우 여백
 const MIN_PRINT_SCALE = 0.55; // 이보다 작아지면 가독성이 떨어져 축소를 멈춤
 
 /** 인쇄될 실제 너비로 복제해 높이를 재고, A4 한 장에 들어가도록 필요한 축소 비율을 계산 */
 function computePrintScale(source: HTMLElement): number {
-  const contentHeightPx = (PAGE_HEIGHT_MM - PAGE_MARGIN_V_MM * 2) * MM_TO_PX * 0.85; // 여유 15% (측정 오차 및 브라우저별 렌더링 차이 대비)
+  const contentHeightPx =
+    (PAGE_HEIGHT_MM - PAGE_MARGIN_TOP_MM - PAGE_MARGIN_BOTTOM_MM) * MM_TO_PX * 0.85; // 여유 15% (측정 오차 및 브라우저별 렌더링 차이 대비)
   const contentWidthPx = (PAGE_WIDTH_MM - PAGE_MARGIN_H_MM * 2) * MM_TO_PX;
 
   const clone = source.cloneNode(true) as HTMLElement;
@@ -206,7 +208,7 @@ export default function PrintPage() {
       <style jsx global>{`
         @page {
           size: A4 portrait;
-          margin: 18mm 24mm;
+          margin: 36mm 24mm 18mm 24mm;
         }
         @media print {
           .no-print {
