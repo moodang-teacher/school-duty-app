@@ -245,7 +245,7 @@ export default function PrintPage() {
           font-weight: 600;
         }
         .print-table td {
-          padding: 7px 0;
+          padding: 8px 0;
         }
         .holiday-cell {
           color: #c00;
@@ -276,7 +276,7 @@ export default function PrintPage() {
         .contact-table th,
         .contact-table td {
           border: 1px solid #000;
-          padding: 4px 10px;
+          padding: 5px 10px;
           text-align: center;
         }
         .contact-table th {
