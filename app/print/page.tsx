@@ -234,13 +234,16 @@ export default function PrintPage() {
         .print-table th,
         .print-table td {
           border: 1px solid #000;
-          padding: 6px 0;
           text-align: center;
           vertical-align: middle;
         }
         .print-table th {
+          padding: 6px 0;
           background: #f5f5f5;
           font-weight: 600;
+        }
+        .print-table td {
+          padding: 7px 0;
         }
         .holiday-cell {
           color: #c00;
@@ -276,6 +279,18 @@ export default function PrintPage() {
         }
         .contact-table th {
           background: #f5f5f5;
+        }
+        .print-footer {
+          margin-top: 24px;
+        }
+        @media print {
+          .print-footer {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            margin-top: 0;
+          }
         }
       `}</style>
 
@@ -480,8 +495,8 @@ export default function PrintPage() {
             </ul>
           </div>
 
-          {/* 비상연락망 - 숙지사항과의 간격 추가 */}
-          <div style={{ marginTop: '24px' }}>
+          {/* 비상연락망 + 학교 로고 - 항상 페이지 하단에 고정 */}
+          <div className="print-footer">
             <table className="contact-table">
               <thead>
                 <tr>
@@ -504,15 +519,14 @@ export default function PrintPage() {
                 </tr>
               </tbody>
             </table>
-          </div>
 
-          {/* 학교 로고 */}
-          <div style={{ textAlign: 'center', marginTop: '12px' }}>
-            <img
-              src="/images/iti_logo.png"
-              alt="인천직업전문학교"
-              style={{ height: '40px', display: 'inline-block' }}
-            />
+            <div style={{ textAlign: 'center', marginTop: '12px' }}>
+              <img
+                src="/images/iti_logo.png"
+                alt="인천직업전문학교"
+                style={{ height: '60px', display: 'inline-block' }}
+              />
+            </div>
           </div>
         </div>
       </div>
