@@ -24,11 +24,11 @@ interface Row {
   holidayName?: string;
 }
 
-// @page 설정(size: A4, margin: 12mm 24mm)과 반드시 일치시켜야 함
+// @page 설정(size: A4, margin: 18mm 24mm)과 반드시 일치시켜야 함
 const MM_TO_PX = 96 / 25.4;
 const PAGE_HEIGHT_MM = 297;
 const PAGE_WIDTH_MM = 210;
-const PAGE_MARGIN_V_MM = 12; // 상하 여백
+const PAGE_MARGIN_V_MM = 18; // 상하 여백
 const PAGE_MARGIN_H_MM = 24; // 좌우 여백
 const MIN_PRINT_SCALE = 0.55; // 이보다 작아지면 가독성이 떨어져 축소를 멈춤
 
@@ -206,7 +206,7 @@ export default function PrintPage() {
       <style jsx global>{`
         @page {
           size: A4 portrait;
-          margin: 12mm 24mm;
+          margin: 18mm 24mm;
         }
         @media print {
           .no-print {
@@ -274,7 +274,7 @@ export default function PrintPage() {
         .contact-table th,
         .contact-table td {
           border: 1px solid #000;
-          padding: 3px 10px;
+          padding: 4px 10px;
           text-align: center;
         }
         .contact-table th {
