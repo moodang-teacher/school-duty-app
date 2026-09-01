@@ -60,10 +60,12 @@ export default function Page() {
         ),
       ]);
 
-      const teachersList: Teacher[] = teachersSnap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Omit<Teacher, 'id'>),
-      }));
+      const teachersList: Teacher[] = teachersSnap.docs
+        .map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<Teacher, 'id'>),
+        }))
+        .filter((t) => t.active !== false);
 
       let assignList: DutyAssignment[] = assignSnap.docs.map((d) => d.data() as DutyAssignment);
 
@@ -78,7 +80,11 @@ export default function Page() {
       setAssignments(assignList);
 
       const savedId = localStorage.getItem('teacherId');
-      if (savedId) setCurrentTeacherId(savedId);
+      if (savedId && (savedId === VIEWER_ID || teachersList.some((t) => t.id === savedId))) {
+        setCurrentTeacherId(savedId);
+      } else if (savedId) {
+        localStorage.removeItem('teacherId');
+      }
 
       setLoading(false);
     })();

@@ -6,6 +6,7 @@ import { isTeacherExcludedOnDate } from './teacherExcludeRanges';
 export interface Teacher {
   id: string;
   name: string;
+  active?: boolean;
   excludeWeekdays: number[]; // 0=일, 1=월, ..., 6=토. 예: 박지훈 [4] (목요일 제외)
 }
 
@@ -51,6 +52,7 @@ export function generateSchedule(
   endDate: string,
   existingAssignments: DutyAssignment[] = []
 ): DutyAssignment[] {
+  teachers = teachers.filter((teacher) => teacher.active !== false);
   if (teachers.length === 0) return [];
 
   const assignments: DutyAssignment[] = [];

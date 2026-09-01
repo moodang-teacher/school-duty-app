@@ -50,6 +50,11 @@ export default function AdminPage() {
   const [excludeStart, setExcludeStart] = useState('');
   const [excludeEnd, setExcludeEnd] = useState('');
   const [excludeReason, setExcludeReason] = useState('');
+  const [adminPin, setAdminPin] = useState('');
+  const [editingTeacherId, setEditingTeacherId] = useState('');
+  const [teacherName, setTeacherName] = useState('');
+  const [teacherWeekdays, setTeacherWeekdays] = useState<number[]>([]);
+  const [regenerateAfterTeacherChange, setRegenerateAfterTeacherChange] = useState(true);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -131,7 +136,117 @@ export default function AdminPage() {
       id: d.id,
       ...(d.data() as Omit<Teacher, 'id'>),
     }));
-    setTeachers(list);
+    setTeachers(
+      list.sort((a, b) => {
+        if ((a.active !== false) !== (b.active !== false)) return a.active === false ? 1 : -1;
+        return a.name.localeCompare(b.name, 'ko');
+      })
+    );
+  }
+
+  function resetTeacherForm() {
+    setEditingTeacherId('');
+    setTeacherName('');
+    setTeacherWeekdays([]);
+  }
+
+  function startEditingTeacher(teacher: Teacher) {
+    setEditingTeacherId(teacher.id);
+    setTeacherName(teacher.name);
+    setTeacherWeekdays(teacher.excludeWeekdays || []);
+  }
+
+  function toggleTeacherWeekday(day: number) {
+    setTeacherWeekdays((current) =>
+      current.includes(day) ? current.filter((value) => value !== day) : [...current, day]
+    );
+  }
+
+  async function callManageTeacher(data: Record<string, unknown>) {
+    const functions = getFunctions(undefined, 'asia-northeast3');
+    const call = httpsCallable(functions, 'manageTeacher');
+    return call({ ...data, adminPin });
+  }
+
+  async function handleSaveTeacher() {
+    const name = teacherName.trim();
+    if (!adminPin) {
+      setResult('❌ 관리자 PIN을 입력하세요.');
+      return;
+    }
+    if (!name) {
+      setResult('❌ 선생님 이름을 입력하세요.');
+      return;
+    }
+    const actionLabel = editingTeacherId ? '수정' : '추가';
+    const scheduleLabel = regenerateAfterTeacherChange
+      ? '오늘 일정은 유지하고 내일부터 연말까지 일정을 재생성합니다.'
+      : '현재 일정은 변경하지 않습니다.';
+    if (!confirm(`${name} 선생님을 ${actionLabel}할까요?\n\n${scheduleLabel}`)) return;
+
+    setLoading(true);
+    setResult('');
+    try {
+      const response = await callManageTeacher({
+        action: 'upsert',
+        teacherId: editingTeacherId || undefined,
+        name,
+        excludeWeekdays: teacherWeekdays,
+        regenerate: regenerateAfterTeacherChange,
+      });
+      const data = response.data as { regenerated: boolean; generatedCount: number };
+      await loadTeachers();
+      resetTeacherForm();
+      setResult(
+        `✓ 선생님 명단을 ${actionLabel}했습니다.` +
+          (data.regenerated
+            ? `\n오늘 일정은 유지하고 내일부터 ${data.generatedCount}개 일정을 재생성했습니다.`
+            : '\n기존 일정은 변경하지 않았습니다.')
+      );
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setResult(`❌ 실패: ${msg}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSetTeacherActive(teacher: Teacher) {
+    if (!adminPin) {
+      setResult('❌ 관리자 PIN을 입력하세요.');
+      return;
+    }
+    const nextActive = teacher.active === false;
+    const actionLabel = nextActive ? '활성화' : '비활성화';
+    const scheduleLabel = regenerateAfterTeacherChange
+      ? '오늘 일정은 유지하고 내일부터 연말까지 일정을 재생성합니다.'
+      : '현재 일정은 변경하지 않습니다.';
+    if (!confirm(`${teacher.name} 선생님을 ${actionLabel}할까요?\n\n${scheduleLabel}`)) return;
+
+    setLoading(true);
+    setResult('');
+    try {
+      const response = await callManageTeacher({
+        action: 'setActive',
+        teacherId: teacher.id,
+        active: nextActive,
+        regenerate: regenerateAfterTeacherChange,
+      });
+      const data = response.data as { regenerated: boolean; generatedCount: number };
+      await loadTeachers();
+      if (editingTeacherId === teacher.id) resetTeacherForm();
+      setResult(
+        `✓ ${teacher.name} 선생님을 ${actionLabel}했습니다.` +
+          (data.regenerated
+            ? `\n오늘 일정은 유지하고 내일부터 ${data.generatedCount}개 일정을 재생성했습니다.`
+            : '\n기존 일정은 변경하지 않았습니다.')
+      );
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setResult(`❌ 실패: ${msg}`);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function loadTeacherExcludeRangeList() {
@@ -221,10 +336,12 @@ export default function AdminPage() {
       await Promise.all([loadHolidays(), loadNoDutyRanges(), loadTeacherExcludeRanges()]);
 
       const teachersSnap = await getDocs(collection(db, 'teachers'));
-      const teachers: Teacher[] = teachersSnap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Omit<Teacher, 'id'>),
-      }));
+      const teachers: Teacher[] = teachersSnap.docs
+        .map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<Teacher, 'id'>),
+        }))
+        .filter((teacher) => teacher.active !== false);
       if (teachers.length === 0) {
         setResult('✗ 선생님 명단이 비어있습니다. seed.js를 먼저 실행하세요.');
         setLoading(false);
@@ -293,10 +410,12 @@ export default function AdminPage() {
       await Promise.all([loadHolidays(), loadNoDutyRanges(), loadTeacherExcludeRanges()]);
 
       const teachersSnap = await getDocs(collection(db, 'teachers'));
-      const teachers: Teacher[] = teachersSnap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Omit<Teacher, 'id'>),
-      }));
+      const teachers: Teacher[] = teachersSnap.docs
+        .map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<Teacher, 'id'>),
+        }))
+        .filter((teacher) => teacher.active !== false);
       if (teachers.length === 0) {
         setResult('✗ 선생님 명단이 비어있습니다.');
         setLoading(false);
@@ -341,12 +460,141 @@ export default function AdminPage() {
         <p className="text-xs text-slate-500 mt-1">공휴일 갱신 및 일정 재생성</p>
       </header>
 
+      <section className="bg-white border-2 border-blue-200 rounded-xl p-4 mb-4">
+        <div className="text-sm font-medium mb-1">선생님 명단 관리</div>
+        <p className="text-xs text-slate-500 mb-3">
+          추가·수정·비활성화 후 선택한 경우에만 오늘 일정은 유지하고 내일부터 다시 배정합니다.
+        </p>
+
+        <label className="block text-xs text-slate-500 mb-1" htmlFor="admin-pin">
+          관리자 PIN
+        </label>
+        <input
+          id="admin-pin"
+          type="password"
+          inputMode="numeric"
+          autoComplete="current-password"
+          value={adminPin}
+          onChange={(e) => setAdminPin(e.target.value)}
+          placeholder="Firebase Secret에 설정한 PIN"
+          className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm mb-3"
+        />
+
+        <div className="space-y-2 mb-4">
+          {teachers.map((teacher) => (
+            <div
+              key={teacher.id}
+              className={`flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm ${
+                teacher.active === false ? 'bg-slate-100 text-slate-400' : 'bg-slate-50'
+              }`}
+            >
+              <div className="min-w-0">
+                <div className="font-medium truncate">
+                  {teacher.name}
+                  {teacher.active === false && (
+                    <span className="ml-2 text-xs font-normal">비활성</span>
+                  )}
+                </div>
+                <div className="text-xs text-slate-400">
+                  제외 요일:{' '}
+                  {(teacher.excludeWeekdays || []).length === 0
+                    ? '없음'
+                    : (teacher.excludeWeekdays || [])
+                        .map((day) => ['일', '월', '화', '수', '목', '금', '토'][day])
+                        .join(', ')}
+                </div>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => startEditingTeacher(teacher)}
+                  disabled={loading || teacher.active === false}
+                  className="text-blue-600 disabled:text-slate-300"
+                >
+                  수정
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSetTeacherActive(teacher)}
+                  disabled={loading}
+                  className={teacher.active === false ? 'text-emerald-600' : 'text-amber-700'}
+                >
+                  {teacher.active === false ? '활성화' : '비활성화'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="border-t border-slate-100 pt-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium">
+              {editingTeacherId ? '선생님 정보 수정' : '새 선생님 추가'}
+            </span>
+            {editingTeacherId && (
+              <button type="button" onClick={resetTeacherForm} className="text-xs text-slate-500">
+                취소
+              </button>
+            )}
+          </div>
+          <input
+            type="text"
+            value={teacherName}
+            onChange={(e) => setTeacherName(e.target.value)}
+            placeholder="선생님 이름"
+            maxLength={30}
+            className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm mb-2"
+          />
+          <div className="text-xs text-slate-500 mb-1">매주 당직 제외 요일</div>
+          <div className="flex gap-1 mb-3">
+            {['월', '화', '수', '목', '금'].map((label, index) => {
+              const day = index + 1;
+              const selected = teacherWeekdays.includes(day);
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => toggleTeacherWeekday(day)}
+                  className={`flex-1 rounded-md border py-1.5 text-xs ${
+                    selected
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-slate-200 text-slate-500'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <label className="flex items-start gap-2 text-xs text-slate-600 mb-3">
+            <input
+              type="checkbox"
+              checked={regenerateAfterTeacherChange}
+              onChange={(e) => setRegenerateAfterTeacherChange(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>저장 후 오늘 일정은 유지하고 내일부터 연말까지 자동 재생성</span>
+          </label>
+          <button
+            type="button"
+            onClick={handleSaveTeacher}
+            disabled={loading}
+            className="w-full px-4 py-2 bg-blue-600 text-white text-sm rounded-md disabled:bg-slate-300"
+          >
+            {loading ? '처리중...' : editingTeacherId ? '수정 저장' : '선생님 추가'}
+          </button>
+        </div>
+      </section>
+
       <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4">
         <div className="text-sm font-medium mb-3">현황</div>
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="text-slate-500">등록된 선생님</span>
-            <span className="font-medium">{teachers.length}명</span>
+            <span className="font-medium">
+              {teachers.filter((teacher) => teacher.active !== false).length}명
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-slate-500">공휴일 데이터</span>
@@ -491,7 +739,7 @@ export default function AdminPage() {
             className="w-full px-2 py-2 border border-slate-200 rounded-md text-sm"
           >
             <option value="">선생님 선택</option>
-            {teachers.map((t) => (
+            {teachers.filter((t) => t.active !== false).map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
               </option>

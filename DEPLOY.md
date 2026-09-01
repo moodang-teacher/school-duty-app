@@ -184,6 +184,20 @@ firebase deploy --only functions
 
 ## 운영 가이드
 
+### 관리자 선생님 명단 관리 최초 설정
+
+관리자 화면의 선생님 추가·수정·비활성화 기능은 Firebase Secret에 저장된 PIN을
+서버에서 확인합니다. 최초 한 번 아래 명령으로 PIN을 설정한 뒤 Functions를 배포합니다.
+
+```bash
+firebase functions:secrets:set ADMIN_PIN
+firebase deploy --only functions
+```
+
+그다음 웹 앱을 배포하면 `/admin`에서 같은 PIN으로 명단을 관리할 수 있습니다.
+명단 변경 시 자동 재생성을 선택해도 오늘 일정은 보존되고 내일부터 연말까지만
+다시 생성됩니다. 퇴사자는 과거 기록 보존을 위해 삭제하지 않고 비활성화합니다.
+
 ### 매년 1월 해야 할 일
 1. `lib/holidays.ts`의 `HOLIDAYS_2026` → 새해 데이터로 갱신
    (또는 공공데이터포털 API 키 발급해서 자동화)

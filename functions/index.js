@@ -13,6 +13,7 @@ const db = getFirestore();
 const messaging = getMessaging();
 
 const holidayApiKey = defineSecret('HOLIDAY_API_KEY');
+const adminPin = defineSecret('ADMIN_PIN');
 
 /**
  * 매일 한국시간 17:40에 실행 → 오늘 당직자에게 알림 발송
@@ -175,7 +176,9 @@ exports.generateNextYearSchedule = onSchedule(
   async () => {
     const nextYear = new Date().getFullYear() + 1;
     const teachersSnap = await db.collection('teachers').get();
-    const teachers = teachersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const teachers = teachersSnap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((t) => t.active !== false);
     if (teachers.length === 0) return;
 
     const holidayDoc = await db.collection('holidays').doc(String(nextYear)).get();
@@ -251,5 +254,203 @@ exports.manualFetchHolidays = onCall(
       updatedAt: Date.now(),
     });
     return { success: true, count: Object.keys(holidays).length, year };
+  }
+);
+
+function addDaysToDateString(dateStr, days) {
+  const date = new Date(`${dateStr}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function getKoreanDateString() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+async function commitOperations(operations) {
+  for (let index = 0; index < operations.length; index += 400) {
+    const batch = db.batch();
+    operations.slice(index, index + 400).forEach((operation) => operation(batch));
+    await batch.commit();
+  }
+}
+
+async function regenerateScheduleFrom(startDate) {
+  const year = Number(startDate.slice(0, 4));
+  const endDate = `${year}-12-31`;
+
+  const [teachersSnap, holidayDoc, noDutySnap, excludeSnap, assignmentSnap] =
+    await Promise.all([
+      db.collection('teachers').get(),
+      db.collection('holidays').doc(String(year)).get(),
+      db.collection('noDutyRanges').get(),
+      db.collection('teacherExcludeRanges').get(),
+      db.collection('assignments')
+        .where('date', '>=', `${year}-01-01`)
+        .where('date', '<=', endDate)
+        .get(),
+    ]);
+
+  const teachers = teachersSnap.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((teacher) => teacher.active !== false);
+  if (teachers.length === 0) {
+    throw new HttpsError('failed-precondition', '활성 선생님이 한 명 이상 필요합니다.');
+  }
+
+  const holidays = holidayDoc.exists ? holidayDoc.data().data || {} : {};
+  const noDutyRanges = noDutySnap.docs.map((doc) => doc.data());
+  const excludeRanges = excludeSnap.docs.map((doc) => doc.data());
+  const allAssignments = assignmentSnap.docs.map((doc) => doc.data());
+  const pastAssignments = allAssignments.filter((assignment) => assignment.date < startDate);
+  const futureDocs = assignmentSnap.docs.filter((doc) => doc.data().date >= startDate);
+
+  const counts = Object.fromEntries(teachers.map((teacher) => [teacher.id, 0]));
+  pastAssignments.forEach((assignment) => {
+    if (counts[assignment.teacherId] !== undefined) counts[assignment.teacherId]++;
+  });
+
+  const teachersWithHistory = new Set(pastAssignments.map((assignment) => assignment.teacherId));
+  const historyCounts = teachers
+    .filter((teacher) => teachersWithHistory.has(teacher.id))
+    .map((teacher) => counts[teacher.id]);
+  const newTeacherBaseline = historyCounts.length > 0 ? Math.max(...historyCounts) : 0;
+  teachers.forEach((teacher) => {
+    if (!teachersWithHistory.has(teacher.id)) counts[teacher.id] = newTeacherBaseline;
+  });
+
+  const generated = [];
+  let rotationIndex = 0;
+  for (
+    let cursor = new Date(`${startDate}T00:00:00Z`);
+    cursor <= new Date(`${endDate}T00:00:00Z`);
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  ) {
+    const date = cursor.toISOString().slice(0, 10);
+    const weekday = cursor.getUTCDay();
+    if (weekday === 0 || weekday === 6 || holidays[date]) continue;
+    if (noDutyRanges.some((range) => range.startDate <= date && date <= range.endDate)) continue;
+
+    const candidates = teachers.filter(
+      (teacher) =>
+        !(teacher.excludeWeekdays || []).includes(weekday) &&
+        !excludeRanges.some(
+          (range) =>
+            range.teacherId === teacher.id && range.startDate <= date && date <= range.endDate
+        )
+    );
+    const pool = candidates.length > 0 ? candidates : teachers;
+    const minimum = Math.min(...pool.map((teacher) => counts[teacher.id]));
+    const tiedIds = new Set(
+      pool.filter((teacher) => counts[teacher.id] === minimum).map((teacher) => teacher.id)
+    );
+    let picked = pool[0];
+    for (let offset = 0; offset < teachers.length; offset++) {
+      const candidate = teachers[(rotationIndex + offset) % teachers.length];
+      if (tiedIds.has(candidate.id)) {
+        picked = candidate;
+        break;
+      }
+    }
+
+    generated.push({ date, teacherId: picked.id, teacherName: picked.name });
+    counts[picked.id]++;
+    rotationIndex = teachers.findIndex((teacher) => teacher.id === picked.id) + 1;
+  }
+
+  const operations = [
+    ...futureDocs.map((doc) => (batch) => batch.delete(doc.ref)),
+    ...generated.map((assignment) => (batch) =>
+      batch.set(db.collection('assignments').doc(assignment.date), assignment)
+    ),
+  ];
+  await commitOperations(operations);
+  return generated.length;
+}
+
+const { HttpsError } = require('firebase-functions/v2/https');
+
+exports.manageTeacher = onCall(
+  {
+    region: 'asia-northeast3',
+    secrets: [adminPin],
+  },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
+    if (!adminPin.value() || request.data?.adminPin !== adminPin.value()) {
+      throw new HttpsError('permission-denied', '관리자 PIN이 올바르지 않습니다.');
+    }
+
+    const action = request.data?.action;
+    const teacherId = String(request.data?.teacherId || '').trim();
+    let savedTeacherId = teacherId;
+
+    if (action === 'upsert') {
+      const name = String(request.data?.name || '').trim();
+      const excludeWeekdays = request.data?.excludeWeekdays;
+      if (!name || name.length > 30) {
+        throw new HttpsError('invalid-argument', '이름은 1~30자로 입력하세요.');
+      }
+      if (
+        !Array.isArray(excludeWeekdays) ||
+        excludeWeekdays.some(
+          (day) => !Number.isInteger(day) || day < 0 || day > 6
+        )
+      ) {
+        throw new HttpsError('invalid-argument', '제외 요일 형식이 올바르지 않습니다.');
+      }
+
+      const teacherRef = teacherId
+        ? db.collection('teachers').doc(teacherId)
+        : db.collection('teachers').doc();
+      const existing = await teacherRef.get();
+      await teacherRef.set(
+        {
+          name,
+          excludeWeekdays: [...new Set(excludeWeekdays)].sort(),
+          active: existing.exists ? existing.data().active !== false : true,
+          updatedAt: Date.now(),
+        },
+        { merge: true }
+      );
+      savedTeacherId = teacherRef.id;
+    } else if (action === 'setActive') {
+      if (!teacherId || typeof request.data?.active !== 'boolean') {
+        throw new HttpsError('invalid-argument', '선생님과 상태를 확인하세요.');
+      }
+      const teacherRef = db.collection('teachers').doc(teacherId);
+      const teacher = await teacherRef.get();
+      if (!teacher.exists) throw new HttpsError('not-found', '선생님을 찾을 수 없습니다.');
+      if (request.data.active === false) {
+        const activeTeachers = await db.collection('teachers').get();
+        const activeCount = activeTeachers.docs.filter(
+          (doc) => doc.id !== teacherId && doc.data().active !== false
+        ).length;
+        if (activeCount === 0) {
+          throw new HttpsError('failed-precondition', '활성 선생님이 한 명 이상 필요합니다.');
+        }
+      }
+      await teacherRef.set({ active: request.data.active, updatedAt: Date.now() }, { merge: true });
+    } else {
+      throw new HttpsError('invalid-argument', '지원하지 않는 작업입니다.');
+    }
+
+    let generatedCount = 0;
+    if (request.data?.regenerate === true) {
+      const tomorrow = addDaysToDateString(getKoreanDateString(), 1);
+      generatedCount = await regenerateScheduleFrom(tomorrow);
+    }
+
+    return {
+      success: true,
+      teacherId: savedTeacherId,
+      regenerated: request.data?.regenerate === true,
+      generatedCount,
+    };
   }
 );
