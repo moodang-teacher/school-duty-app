@@ -62,6 +62,17 @@ export function generateSchedule(
     if (counts[a.teacherId] !== undefined) counts[a.teacherId]++;
   });
 
+  // 과거 배정 이력이 전혀 없는 신규 교사는 입사 전 당직을 보충하지 않는다.
+  // 기존 교사 중 가장 많은 누적 횟수에서 시작하게 해 재생성 직후 몰아 배정되는 것을 방지한다.
+  const teachersWithHistory = new Set(existingAssignments.map((a) => a.teacherId));
+  const existingCounts = teachers
+    .filter((t) => teachersWithHistory.has(t.id))
+    .map((t) => counts[t.id]);
+  const newTeacherBaseline = existingCounts.length > 0 ? Math.max(...existingCounts) : 0;
+  teachers.forEach((t) => {
+    if (!teachersWithHistory.has(t.id)) counts[t.id] = newTeacherBaseline;
+  });
+
   // 기존 교환 내역 반영
   const swapMap: Record<string, string> = {};
   existingAssignments.forEach((a) => {
