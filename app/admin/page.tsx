@@ -8,12 +8,11 @@ import {
   collection,
   getDocs,
   doc,
-  deleteDoc,
-  setDoc,
   query,
   where,
 } from 'firebase/firestore';
-import { format } from 'date-fns';
+import { effectiveStart } from '../../functions/schedule';
+import { saveSchedulePreview } from '@/lib/saveSchedule';
 import {
   Teacher,
   DutyAssignment,
@@ -53,6 +52,8 @@ export default function AdminPage() {
   const [adminPin, setAdminPin] = useState('');
   const [editingTeacherId, setEditingTeacherId] = useState('');
   const [teacherName, setTeacherName] = useState('');
+  const [dutyStartDate, setDutyStartDate] = useState('');
+  const [preview, setPreview] = useState<{start: string; end: string; before: DutyAssignment[]; after: DutyAssignment[]} | null>(null);
   const [teacherWeekdays, setTeacherWeekdays] = useState<number[]>([]);
   const [regenerateAfterTeacherChange, setRegenerateAfterTeacherChange] = useState(true);
 
@@ -104,7 +105,7 @@ export default function AdminPage() {
       setRangeEnd('');
       setRangeReason('');
       await loadNoDutyRangeList();
-      setResult('✓ 당직 비적용 기간이 추가되었습니다. 적용하려면 아래 "오늘부터 재생성"을 눌러주세요.');
+      setResult('✓ 당직 비적용 기간이 추가되었습니다. 아래 "일정 미리보기"에서 확인 후 적용하세요.');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setResult(`✗ 실패: ${msg}`);
@@ -147,12 +148,14 @@ export default function AdminPage() {
   function resetTeacherForm() {
     setEditingTeacherId('');
     setTeacherName('');
+    setDutyStartDate('');
     setTeacherWeekdays([]);
   }
 
   function startEditingTeacher(teacher: Teacher) {
     setEditingTeacherId(teacher.id);
     setTeacherName(teacher.name);
+    setDutyStartDate(teacher.dutyStartDate || '');
     setTeacherWeekdays(teacher.excludeWeekdays || []);
   }
 
@@ -180,7 +183,7 @@ export default function AdminPage() {
     }
     const actionLabel = editingTeacherId ? '수정' : '추가';
     const scheduleLabel = regenerateAfterTeacherChange
-      ? '오늘 일정은 유지하고 내일부터 연말까지 일정을 재생성합니다.'
+      ? '오늘 일정과 2026년 9월 30일까지의 기록은 보존하고 이후 일정을 재생성합니다.'
       : '현재 일정은 변경하지 않습니다.';
     if (!confirm(`${name} 선생님을 ${actionLabel}할까요?\n\n${scheduleLabel}`)) return;
 
@@ -192,6 +195,7 @@ export default function AdminPage() {
         teacherId: editingTeacherId || undefined,
         name,
         excludeWeekdays: teacherWeekdays,
+        dutyStartDate: dutyStartDate || undefined,
         regenerate: regenerateAfterTeacherChange,
       });
       const data = response.data as { regenerated: boolean; generatedCount: number };
@@ -219,7 +223,7 @@ export default function AdminPage() {
     const nextActive = teacher.active === false;
     const actionLabel = nextActive ? '활성화' : '비활성화';
     const scheduleLabel = regenerateAfterTeacherChange
-      ? '오늘 일정은 유지하고 내일부터 연말까지 일정을 재생성합니다.'
+      ? '오늘 일정과 2026년 9월 30일까지의 기록은 보존하고 이후 일정을 재생성합니다.'
       : '현재 일정은 변경하지 않습니다.';
     if (!confirm(`${teacher.name} 선생님을 ${actionLabel}할까요?\n\n${scheduleLabel}`)) return;
 
@@ -274,7 +278,7 @@ export default function AdminPage() {
       setExcludeEnd('');
       setExcludeReason('');
       await loadTeacherExcludeRangeList();
-      setResult('✓ 선생님별 제외 기간이 추가되었습니다. 적용하려면 아래 "오늘부터 재생성"을 눌러주세요.');
+      setResult('✓ 선생님별 제외 기간이 추가되었습니다. 아래 "일정 미리보기"에서 확인 후 적용하세요.');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setResult(`✗ 실패: ${msg}`);
@@ -318,132 +322,49 @@ export default function AdminPage() {
   }
 
   async function regenerateFutureSchedule() {
-    if (
-      !confirm(
-        `오늘부터 ${year}년 12월 31일까지의 일정을 재생성합니다.\n\n` +
-          '• 지난 일정은 그대로 보존됩니다\n' +
-          '• 미래 일정만 현재 선생님 명단으로 다시 만듭니다\n' +
-          '• 누적 당직 횟수는 이어집니다 (형평성 유지)\n\n' +
-          '진행할까요?'
-      )
-    )
-      return;
-
     setLoading(true);
+    setPreview(null);
     setResult('');
     try {
-      const today = format(new Date(), 'yyyy-MM-dd');
-      await Promise.all([loadHolidays(), loadNoDutyRanges(), loadTeacherExcludeRanges()]);
-
-      const teachersSnap = await getDocs(collection(db, 'teachers'));
-      const teachers: Teacher[] = teachersSnap.docs
-        .map((d) => ({
-          id: d.id,
-          ...(d.data() as Omit<Teacher, 'id'>),
-        }))
-        .filter((teacher) => teacher.active !== false);
-      if (teachers.length === 0) {
-        setResult('✗ 선생님 명단이 비어있습니다. seed.js를 먼저 실행하세요.');
-        setLoading(false);
-        return;
-      }
-
-      const assignSnap = await getDocs(
-        query(
-          collection(db, 'assignments'),
-          where('date', '>=', `${year}-01-01`),
-          where('date', '<=', `${year}-12-31`)
-        )
-      );
-      const allAssignments: DutyAssignment[] = assignSnap.docs.map(
-        (d) => d.data() as DutyAssignment
-      );
-
-      const pastAssignments = allAssignments.filter((a) => a.date < today);
-      const futureToDelete = allAssignments.filter((a) => a.date >= today);
-      const deletePromises = futureToDelete.map((a) =>
-        deleteDoc(doc(db, 'assignments', a.date))
-      );
-      await Promise.all(deletePromises);
-
-      const endStr = `${year}-12-31`;
-      const newAssignments = generateSchedule(
-        teachers,
-        today,
-        endStr,
-        pastAssignments
-      );
-
-      const savePromises = newAssignments.map((a) =>
-        setDoc(doc(db, 'assignments', a.date), a)
-      );
-      await Promise.all(savePromises);
-
-      setResult(
-        `✓ 일정 재생성 완료!\n` +
-          `   • 보존된 과거 일정: ${pastAssignments.length}개\n` +
-          `   • 삭제된 미래 일정: ${futureToDelete.length}개\n` +
-          `   • 새로 생성된 일정: ${newAssignments.length}개`
-      );
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const start = effectiveStart(year + '-01-01', today);
+      const end = year + '-12-31';
+      if (start > end) throw new Error('지난 연도의 일정은 변경할 수 없습니다.');
+      await Promise.all([loadHolidays(year, true), loadNoDutyRanges(true), loadTeacherExcludeRanges(true)]);
+      const [teacherSnap, assignmentSnap] = await Promise.all([
+        getDocs(collection(db, 'teachers')),
+        getDocs(query(collection(db, 'assignments'), where('date', '>=', year + '-01-01'), where('date', '<=', end))),
+      ]);
+      const roster = teacherSnap.docs.map(d => ({ id: d.id, ...d.data() } as Teacher));
+      const before = assignmentSnap.docs.map(d => d.data() as DutyAssignment);
+      const after = generateSchedule(roster, start, end, before);
+      setPreview({ start, end, before, after });
+      setResult('✓ 미리보기 생성 완료. 아직 운영 일정은 변경되지 않았습니다.');
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setResult(`✗ 실패: ${msg}`);
+      setResult('✗ 실패: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setLoading(false);
     }
   }
 
-  async function regenerateFullYear() {
-    if (
-      !confirm(
-        `⚠️ ${year}년 전체 일정을 모두 삭제하고 처음부터 재생성합니다.\n\n` +
-          '• 지난 일정도 모두 사라집니다\n' +
-          '• 누적 통계가 초기화됩니다\n\n' +
-          '정말 진행할까요?'
-      )
-    )
-      return;
-
+  async function applyPreview() {
+    if (!preview || !confirm(preview.start + '부터의 미리보기 일정을 적용할까요? 이전 일정과 확정 교환은 보존됩니다.')) return;
     setLoading(true);
-    setResult('');
     try {
-      await Promise.all([loadHolidays(), loadNoDutyRanges(), loadTeacherExcludeRanges()]);
-
-      const teachersSnap = await getDocs(collection(db, 'teachers'));
-      const teachers: Teacher[] = teachersSnap.docs
-        .map((d) => ({
-          id: d.id,
-          ...(d.data() as Omit<Teacher, 'id'>),
-        }))
-        .filter((teacher) => teacher.active !== false);
-      if (teachers.length === 0) {
-        setResult('✗ 선생님 명단이 비어있습니다.');
-        setLoading(false);
-        return;
+      const previewYear = Number(preview.start.slice(0, 4));
+      await Promise.all([loadHolidays(previewYear, true), loadNoDutyRanges(true), loadTeacherExcludeRanges(true)]);
+      const teacherSnap = await getDocs(collection(db, 'teachers'));
+      const roster = teacherSnap.docs.map(d => ({ id: d.id, ...d.data() } as Teacher));
+      const checked = generateSchedule(roster, preview.start, preview.end, preview.before);
+      if (JSON.stringify(checked) !== JSON.stringify(preview.after)) {
+        setPreview(null);
+        throw new Error('미리보기 이후 명단이나 제외 조건이 변경되었습니다. 다시 미리보기를 실행하세요.');
       }
-
-      const snap = await getDocs(
-        query(
-          collection(db, 'assignments'),
-          where('date', '>=', `${year}-01-01`),
-          where('date', '<=', `${year}-12-31`)
-        )
-      );
-      await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, 'assignments', d.id))));
-
-      const newAssignments = generateSchedule(
-        teachers,
-        `${year}-01-01`,
-        `${year}-12-31`
-      );
-      await Promise.all(
-        newAssignments.map((a) => setDoc(doc(db, 'assignments', a.date), a))
-      );
-
-      setResult(`✓ ${year}년 전체 일정 ${newAssignments.length}개를 새로 생성했습니다.`);
+      await saveSchedulePreview(preview.start, preview.end, preview.before, preview.after);
+      setResult('✓ ' + preview.start + '부터 ' + preview.after.length + '개 일정을 적용했습니다.');
+      setPreview(null);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setResult(`✗ 실패: ${msg}`);
+      setResult('✗ 실패: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setLoading(false);
     }
@@ -463,7 +384,7 @@ export default function AdminPage() {
       <section className="bg-white border-2 border-blue-200 rounded-xl p-4 mb-4">
         <div className="text-sm font-medium mb-1">선생님 명단 관리</div>
         <p className="text-xs text-slate-500 mb-3">
-          추가·수정·비활성화 후 선택한 경우에만 오늘 일정은 유지하고 내일부터 다시 배정합니다.
+          추가·수정·비활성화 후 선택한 경우에만 오늘 일정과 2026년 9월 30일까지의 기록을 보존하고 이후 일정을 다시 배정합니다.
         </p>
 
         <label className="block text-xs text-slate-500 mb-1" htmlFor="admin-pin">
@@ -479,6 +400,9 @@ export default function AdminPage() {
           placeholder="Firebase Secret에 설정한 PIN"
           className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm mb-3"
         />
+
+        <label className="block text-xs text-slate-500 mb-1" htmlFor="duty-start-date">최초 당직 참여일 (교환 전 기준, 신규 등록 시 미입력하면 등록일)</label>
+        <input id="duty-start-date" type="date" value={dutyStartDate} onChange={e => setDutyStartDate(e.target.value)} className="w-full border rounded-md p-2 mb-3" />
 
         <div className="space-y-2 mb-4">
           {teachers.map((teacher) => (
@@ -574,7 +498,7 @@ export default function AdminPage() {
               onChange={(e) => setRegenerateAfterTeacherChange(e.target.checked)}
               className="mt-0.5"
             />
-            <span>저장 후 오늘 일정은 유지하고 내일부터 연말까지 자동 재생성</span>
+            <span>저장 후 오늘 일정과 2026년 9월까지의 기록을 보존하고 이후 일정 자동 재생성</span>
           </label>
           <button
             type="button"
@@ -616,7 +540,7 @@ export default function AdminPage() {
           <input
             type="number"
             value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
+            onChange={(e) => { setYear(Number(e.target.value)); setPreview(null); }}
             className="flex-1 px-3 py-2 border border-slate-200 rounded-md text-sm"
             min={2024}
             max={2030}
@@ -780,7 +704,7 @@ export default function AdminPage() {
 
       <section className="bg-white border-2 border-blue-200 rounded-xl p-4 mb-4">
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-sm font-medium">오늘 이후 일정 재생성</span>
+          <span className="text-sm font-medium">보존 기간 이후 일정 변경</span>
           <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
             추천
           </span>
@@ -788,34 +712,35 @@ export default function AdminPage() {
         <p className="text-xs text-slate-500 mb-3">
           선생님 명단 변경(전입/전출) 후 사용하세요.
           <br />
-          과거 일정은 보존하고 미래만 새 명단으로 다시 만듭니다.
+          2026년 9월 30일까지의 기록과 지난 일정은 보존합니다. 적용 전에 미리보기를 확인하세요.
         </p>
         <button
           onClick={regenerateFutureSchedule}
           disabled={loading}
           className="w-full px-4 py-2 bg-blue-600 text-white text-sm rounded-md disabled:bg-slate-300"
         >
-          {loading ? '처리중...' : '오늘부터 재생성'}
+          {loading ? '처리중...' : '일정 미리보기'}
         </button>
       </section>
 
-      <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4">
-        <div className="text-sm font-medium mb-2 text-amber-700">
-          ⚠️ 전체 재생성 (위험)
-        </div>
-        <p className="text-xs text-slate-500 mb-3">
-          {year}년 전체 일정을 처음부터 다시 만듭니다. 과거 일정도 사라집니다.
-          <br />
-          새해 첫 사용 또는 강제 초기화 시에만 사용하세요.
-        </p>
-        <button
-          onClick={regenerateFullYear}
-          disabled={loading}
-          className="w-full px-4 py-2 bg-white border border-amber-500 text-amber-700 text-sm rounded-md disabled:bg-slate-100"
-        >
-          {year}년 전체 재생성
-        </button>
-      </section>
+      {preview && (
+        <section className="bg-white border border-blue-200 rounded-xl p-4 mb-4">
+          <h2 className="font-medium">{preview.start} ~ {preview.end} 미리보기</h2>
+          <p className="text-xs text-slate-500 my-2">2026년 9월 30일까지의 기록과 승인된 교환은 보존합니다. 아래 내용 확인 후 적용하세요.</p>
+          <table className="w-full text-xs mb-3">
+            <caption className="text-left py-2">선생님별 횟수와 요일 분포</caption>
+            <thead><tr><th scope="col">선생님</th><th scope="col">횟수</th>{['월', '화', '수', '목', '금'].map(d => <th scope="col" key={d}>{d}</th>)}</tr></thead>
+            <tbody>{Array.from(new Set(preview.after.map(a => a.teacherId))).map(id => {
+              const own = preview.after.filter(a => a.teacherId === id);
+              return <tr key={id}><th scope="row">{own[0].teacherName}</th><td className="text-center">{own.length}</td>{[1, 2, 3, 4, 5].map(day => <td className="text-center" key={day}>{own.filter(a => new Date(a.date).getUTCDay() === day).length}</td>)}</tr>;
+            })}</tbody>
+          </table>
+          <div className="max-h-80 overflow-auto text-sm">
+            {preview.after.map(a => <div key={a.date} className="flex justify-between py-1 border-b"><span>{a.date}{a.swappedFrom ? ' (확정 교환)' : ''}</span><span>{a.teacherName}</span></div>)}
+          </div>
+          <button onClick={applyPreview} disabled={loading} className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-md disabled:bg-slate-300">미리보기 일정 적용</button>
+        </section>
+      )}
 
       {result && (
         <div

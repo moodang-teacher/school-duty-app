@@ -35,9 +35,9 @@ let combinedHolidays: HolidayMap = { ...FALLBACK_HOLIDAYS };
  * Firestore의 holidays 컬렉션에서 공휴일 데이터를 모두 로드
  * 앱 시작 시 한 번만 호출
  */
-export async function loadHolidays(): Promise<void> {
+export async function loadHolidays(targetYear?: number, strict = false): Promise<void> {
   const currentYear = new Date().getFullYear();
-  const years = [currentYear, currentYear + 1]; // 올해 + 내년
+  const years = targetYear ? [targetYear] : [currentYear, currentYear + 1]; // 올해 + 내년
 
   await Promise.all(
     years.map(async (year) => {
@@ -45,10 +45,15 @@ export async function loadHolidays(): Promise<void> {
         const snap = await getDoc(doc(db, 'holidays', String(year)));
         if (snap.exists()) {
           const data = snap.data().data as HolidayMap;
+          if (strict && (!data || Object.keys(data).length === 0)) throw new Error(`${year}년 공휴일 데이터가 비어 있습니다.`);
           holidayCache[String(year)] = data;
+          combinedHolidays = Object.fromEntries(Object.entries(combinedHolidays).filter(([date]) => !date.startsWith(String(year))));
           combinedHolidays = { ...combinedHolidays, ...data };
+        } else if (strict) {
+          throw new Error(`${year}년 공휴일 데이터를 먼저 가져오세요.`);
         }
       } catch (e) {
+        if (strict) throw e;
         console.warn(`공휴일 데이터 로드 실패 (${year}):`, e);
       }
     })

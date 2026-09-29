@@ -14,6 +14,7 @@ import {
   onSnapshot,
   query,
   where,
+  runTransaction,
 } from 'firebase/firestore';
 
 interface Props {
@@ -83,16 +84,30 @@ export default function SettingsScreen({
   }
 
   async function handleAcceptSwap(req: SwapRequest) {
-    // 1. 일정 갱신
-    const updated = applySwap(assignments, req.fromDate, req.toDate);
-    setAssignments(updated);
-    // 2. Firestore 업데이트
-    const a1 = updated.find((a) => a.date === req.fromDate)!;
-    const a2 = updated.find((a) => a.date === req.toDate)!;
-    await setDoc(doc(db, 'assignments', req.fromDate), a1);
-    await setDoc(doc(db, 'assignments', req.toDate), a2);
-    // 3. 요청 상태 변경
-    await updateDoc(doc(db, 'swapRequests', req.id), { status: 'accepted' });
+    try {
+      if (req.fromDate < today || req.toDate < today) throw new Error('지난 일정은 교환할 수 없습니다.');
+      const changed = await runTransaction(db, async transaction => {
+        const requestRef = doc(db, 'swapRequests', req.id);
+        const fromRef = doc(db, 'assignments', req.fromDate);
+        const toRef = doc(db, 'assignments', req.toDate);
+        const [requestSnap, fromSnap, toSnap] = await Promise.all([
+          transaction.get(requestRef), transaction.get(fromRef), transaction.get(toRef),
+        ]);
+        const request = requestSnap.data();
+        if (!request || request.status !== 'pending' || request.toTeacherId !== currentTeacherId ||
+            request.fromDate !== req.fromDate || request.toDate !== req.toDate ||
+            fromSnap.data()?.teacherId !== request.fromTeacherId || toSnap.data()?.teacherId !== request.toTeacherId) {
+          throw new Error('교환 요청 이후 일정이 변경되었습니다. 일정을 다시 확인하세요.');
+        }
+        const rows = applySwap([fromSnap.data() as DutyAssignment, toSnap.data() as DutyAssignment], req.fromDate, req.toDate);
+        rows.forEach(a => transaction.set(doc(db, 'assignments', a.date), a));
+        transaction.update(requestRef, { status: 'accepted' });
+        return rows;
+      });
+      setAssignments(assignments.map(a => changed.find(c => c.date === a.date) || a));
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : String(e));
+    }
   }
 
   async function handleRejectSwap(req: SwapRequest) {

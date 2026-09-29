@@ -8,3 +8,4 @@ scripts/serviceAccount.json
 .DS_Store
 .vercel
 .firebase/
+docs/*.txt

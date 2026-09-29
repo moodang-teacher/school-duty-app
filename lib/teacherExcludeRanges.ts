@@ -19,7 +19,7 @@ let cacheLoaded = false;
  * Firestore의 teacherExcludeRanges 컬렉션 전체를 로드
  * 앱 시작 시 loadHolidays()/loadNoDutyRanges()와 함께 한 번 호출
  */
-export async function loadTeacherExcludeRanges(): Promise<void> {
+export async function loadTeacherExcludeRanges(strict = false): Promise<void> {
   try {
     const snap = await getDocs(collection(db, 'teacherExcludeRanges'));
     cachedRanges = snap.docs.map((d) => ({
@@ -27,6 +27,7 @@ export async function loadTeacherExcludeRanges(): Promise<void> {
       ...(d.data() as Omit<TeacherExcludeRange, 'id'>),
     }));
   } catch (e) {
+    if (strict) throw e;
     console.warn('선생님별 당직 제외 기간 로드 실패:', e);
   } finally {
     cacheLoaded = true;

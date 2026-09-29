@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged, signInAnonymously, User } from 'firebase/auth';
-import { collection, getDocs, doc, setDoc, query, where } from 'firebase/firestore';
-import { Teacher, DutyAssignment, generateSchedule } from '@/lib/schedule';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { Teacher, DutyAssignment } from '@/lib/schedule';
 import { setupForegroundListener, syncNotificationToken } from '@/lib/notifications';
 import { loadHolidays } from '@/lib/holidays';
 import { loadNoDutyRanges } from '@/lib/noDutyRanges';
@@ -67,14 +67,8 @@ export default function Page() {
         }))
         .filter((t) => t.active !== false);
 
-      let assignList: DutyAssignment[] = assignSnap.docs.map((d) => d.data() as DutyAssignment);
-
-      if (assignList.length === 0 && teachersList.length > 0) {
-        assignList = generateSchedule(teachersList, startStr, endStr);
-        await Promise.all(
-          assignList.map((a) => setDoc(doc(db, 'assignments', a.date), a))
-        );
-      }
+      // Opening the app must never create or replace operational assignments.
+      const assignList: DutyAssignment[] = assignSnap.docs.map((d) => d.data() as DutyAssignment);
 
       setTeachers(teachersList);
       setAssignments(assignList);

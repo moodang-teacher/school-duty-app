@@ -1,4 +1,4 @@
-import { format, addDays, getDay } from 'date-fns';
+import { generateFairSchedule, POLICY_START } from '../functions/schedule';
 import { isHoliday } from './holidays';
 import { isNoDutyRangeDate } from './noDutyRanges';
 import { isTeacherExcludedOnDate } from './teacherExcludeRanges';
@@ -7,6 +7,7 @@ export interface Teacher {
   id: string;
   name: string;
   active?: boolean;
+  dutyStartDate?: string; // 최초 당직 참여일 (교환으로 바뀌지 않음)
   excludeWeekdays: number[]; // 0=일, 1=월, ..., 6=토. 예: 박지훈 [4] (목요일 제외)
 }
 
@@ -29,7 +30,7 @@ export interface SwapRequest {
 
 export function isWeekend(dateStr: string): boolean {
   const d = new Date(dateStr);
-  const day = d.getDay();
+  const day = d.getUTCDay();
   return day === 0 || day === 6;
 }
 
@@ -42,9 +43,10 @@ export function isDutyDay(dateStr: string): boolean {
  *
  * 규칙:
  * 1. 평일만 배정 (주말/공휴일 제외)
- * 2. 선생님 명단 순서대로 순환
+ * 2. 참여 이전의 부담을 보정하고 총횟수를 균등하게 배정
  * 3. 선생님 개별 제외 요일 적용 (예: 박지훈 → 매주 목요일 건너뜀)
- * 4. 형평성 보정: 누적 횟수가 가장 적은 선생님부터 우선 배정
+ * 4. 총횟수를 유지하며 요일 편중과 연속 근무를 줄임
+ * 5. 2026-09-30까지의 기록과 승인된 교환은 보존
  */
 export function generateSchedule(
   teachers: Teacher[],
@@ -52,98 +54,10 @@ export function generateSchedule(
   endDate: string,
   existingAssignments: DutyAssignment[] = []
 ): DutyAssignment[] {
-  teachers = teachers.filter((teacher) => teacher.active !== false);
-  if (teachers.length === 0) return [];
-
-  const assignments: DutyAssignment[] = [];
-  const counts: Record<string, number> = {};
-  teachers.forEach((t) => (counts[t.id] = 0));
-
-  // 과거에 이미 수행한 당직 횟수를 누적하여 형평성 계산에 반영
-  existingAssignments.forEach((a) => {
-    if (counts[a.teacherId] !== undefined) counts[a.teacherId]++;
+  return generateFairSchedule(teachers, startDate, endDate, existingAssignments, {
+    isDutyDay,
+    isTeacherExcluded: isTeacherExcludedOnDate,
   });
-
-  // 과거 배정 이력이 전혀 없는 신규 교사는 입사 전 당직을 보충하지 않는다.
-  // 기존 교사 중 가장 많은 누적 횟수에서 시작하게 해 재생성 직후 몰아 배정되는 것을 방지한다.
-  const teachersWithHistory = new Set(existingAssignments.map((a) => a.teacherId));
-  const existingCounts = teachers
-    .filter((t) => teachersWithHistory.has(t.id))
-    .map((t) => counts[t.id]);
-  const newTeacherBaseline = existingCounts.length > 0 ? Math.max(...existingCounts) : 0;
-  teachers.forEach((t) => {
-    if (!teachersWithHistory.has(t.id)) counts[t.id] = newTeacherBaseline;
-  });
-
-  // 기존 교환 내역 반영
-  const swapMap: Record<string, string> = {};
-  existingAssignments.forEach((a) => {
-    if (a.swappedFrom) {
-      swapMap[a.date] = a.teacherId;
-    }
-  });
-
-  let cursor = new Date(startDate);
-  const end = new Date(endDate);
-  let rotationIdx = 0;
-
-  while (cursor <= end) {
-    const dateStr = format(cursor, 'yyyy-MM-dd');
-
-    if (!isDutyDay(dateStr)) {
-      cursor = addDays(cursor, 1);
-      continue;
-    }
-
-    // 교환된 날짜는 그대로 유지
-    if (swapMap[dateStr]) {
-      const t = teachers.find((x) => x.id === swapMap[dateStr]);
-      if (t) {
-        assignments.push({ date: dateStr, teacherId: t.id, teacherName: t.name, swappedFrom: 'swap' });
-        counts[t.id]++;
-      }
-      cursor = addDays(cursor, 1);
-      continue;
-    }
-
-    const dayOfWeek = getDay(cursor);
-
-    // 후보 선생님 중에서 (1) 해당 요일 제외 안 한 사람 (2) 누적 횟수 최소
-    const candidates = teachers.filter(
-      (t) => !t.excludeWeekdays.includes(dayOfWeek) && !isTeacherExcludedOnDate(t.id, dateStr)
-    );
-    if (candidates.length === 0) {
-      // 모두가 제외한 요일이면 그냥 순번대로
-      const t = teachers[rotationIdx % teachers.length];
-      assignments.push({ date: dateStr, teacherId: t.id, teacherName: t.name });
-      counts[t.id]++;
-      rotationIdx++;
-      cursor = addDays(cursor, 1);
-      continue;
-    }
-
-    // 형평성을 위해 누적 횟수가 가장 적은 후보 우선
-    // 동률이면 순번 인덱스가 빠른 사람
-    const minCount = Math.min(...candidates.map((c) => counts[c.id]));
-    const tied = candidates.filter((c) => counts[c.id] === minCount);
-
-    // 순번 인덱스를 기준으로 가장 가까운 사람 선택
-    let picked = tied[0];
-    for (let i = 0; i < teachers.length; i++) {
-      const t = teachers[(rotationIdx + i) % teachers.length];
-      if (tied.find((c) => c.id === t.id)) {
-        picked = t;
-        break;
-      }
-    }
-
-    assignments.push({ date: dateStr, teacherId: picked.id, teacherName: picked.name });
-    counts[picked.id]++;
-    rotationIdx = teachers.findIndex((t) => t.id === picked.id) + 1;
-    cursor = addDays(cursor, 1);
-  }
-
-  return assignments;
 }
 
 /**
@@ -155,6 +69,9 @@ export function applySwap(
   date1: string,
   date2: string
 ): DutyAssignment[] {
+  if (date1 < POLICY_START || date2 < POLICY_START) {
+    throw new Error('2026년 9월 30일까지의 배정은 변경할 수 없습니다.');
+  }
   const a1 = assignments.find((a) => a.date === date1);
   const a2 = assignments.find((a) => a.date === date2);
   if (!a1 || !a2) return assignments;

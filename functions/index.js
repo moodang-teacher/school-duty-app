@@ -7,6 +7,7 @@ const { defineSecret } = require('firebase-functions/params');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
+const { effectiveStart, generateFairSchedule } = require('./schedule');
 
 initializeApp();
 const db = getFirestore();
@@ -175,66 +176,8 @@ exports.generateNextYearSchedule = onSchedule(
   },
   async () => {
     const nextYear = new Date().getFullYear() + 1;
-    const teachersSnap = await db.collection('teachers').get();
-    const teachers = teachersSnap.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
-      .filter((t) => t.active !== false);
-    if (teachers.length === 0) return;
-
-    const holidayDoc = await db.collection('holidays').doc(String(nextYear)).get();
-    const holidays = holidayDoc.exists ? holidayDoc.data().data || {} : {};
-
-    const noDutyRangesSnap = await db.collection('noDutyRanges').get();
-    const noDutyRanges = noDutyRangesSnap.docs.map((d) => d.data());
-    const isNoDutyDate = (dateStr) =>
-      noDutyRanges.some((r) => r.startDate <= dateStr && dateStr <= r.endDate);
-
-    const teacherExcludeSnap = await db.collection('teacherExcludeRanges').get();
-    const teacherExcludeRanges = teacherExcludeSnap.docs.map((d) => d.data());
-    const isTeacherExcluded = (teacherId, dateStr) =>
-      teacherExcludeRanges.some(
-        (r) => r.teacherId === teacherId && r.startDate <= dateStr && dateStr <= r.endDate
-      );
-
-    const counts = {};
-    teachers.forEach((t) => (counts[t.id] = 0));
-    let rotationIdx = 0;
-    const batch = db.batch();
-    let batchCount = 0;
-
-    const start = new Date(`${nextYear}-01-01`);
-    const end = new Date(`${nextYear}-12-31`);
-
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().slice(0, 10);
-      const day = d.getDay();
-      if (day === 0 || day === 6) continue;
-      if (holidays[dateStr]) continue;
-      if (isNoDutyDate(dateStr)) continue;
-
-      const candidates = teachers.filter(
-        (t) => !(t.excludeWeekdays || []).includes(day) && !isTeacherExcluded(t.id, dateStr)
-      );
-      const pool = candidates.length > 0 ? candidates : teachers;
-      const minCount = Math.min(...pool.map((c) => counts[c.id]));
-      const tied = pool.filter((c) => counts[c.id] === minCount);
-
-      let picked = tied[0];
-      for (let i = 0; i < teachers.length; i++) {
-        const t = teachers[(rotationIdx + i) % teachers.length];
-        if (tied.find((c) => c.id === t.id)) { picked = t; break; }
-      }
-
-      const ref = db.collection('assignments').doc(dateStr);
-      batch.set(ref, { date: dateStr, teacherId: picked.id, teacherName: picked.name });
-      counts[picked.id]++;
-      rotationIdx = teachers.findIndex((t) => t.id === picked.id) + 1;
-      batchCount++;
-
-      if (batchCount >= 400) { await batch.commit(); batchCount = 0; }
-    }
-    if (batchCount > 0) await batch.commit();
-    console.log(`${nextYear}년 당직 일정 생성 완료`);
+    const count = await regenerateScheduleFrom(nextYear + '-01-01');
+    console.log(nextYear + '년 당직 일정 ' + count + '개 생성 완료');
   }
 );
 
@@ -272,105 +215,56 @@ function getKoreanDateString() {
   }).format(new Date());
 }
 
-async function commitOperations(operations) {
-  for (let index = 0; index < operations.length; index += 400) {
-    const batch = db.batch();
-    operations.slice(index, index + 400).forEach((operation) => operation(batch));
-    await batch.commit();
-  }
-}
-
 async function regenerateScheduleFrom(startDate) {
+  startDate = effectiveStart(startDate, getKoreanDateString());
   const year = Number(startDate.slice(0, 4));
   const endDate = `${year}-12-31`;
 
-  const [teachersSnap, holidayDoc, noDutySnap, excludeSnap, assignmentSnap] =
-    await Promise.all([
-      db.collection('teachers').get(),
-      db.collection('holidays').doc(String(year)).get(),
-      db.collection('noDutyRanges').get(),
-      db.collection('teacherExcludeRanges').get(),
-      db.collection('assignments')
-        .where('date', '>=', `${year}-01-01`)
-        .where('date', '<=', endDate)
-        .get(),
-    ]);
+  return db.runTransaction(async (transaction) => {
+    const [teachersSnap, holidayDoc, noDutySnap, excludeSnap, assignmentSnap] =
+      await Promise.all([
+        transaction.get(db.collection('teachers')),
+        transaction.get(db.collection('holidays').doc(String(year))),
+        transaction.get(db.collection('noDutyRanges')),
+        transaction.get(db.collection('teacherExcludeRanges')),
+        transaction.get(db.collection('assignments')
+          .where('date', '>=', `${year}-01-01`)
+          .where('date', '<=', endDate)),
+      ]);
 
-  const teachers = teachersSnap.docs
-    .map((doc) => ({ id: doc.id, ...doc.data() }))
-    .filter((teacher) => teacher.active !== false);
-  if (teachers.length === 0) {
-    throw new HttpsError('failed-precondition', '활성 선생님이 한 명 이상 필요합니다.');
-  }
-
-  const holidays = holidayDoc.exists ? holidayDoc.data().data || {} : {};
-  const noDutyRanges = noDutySnap.docs.map((doc) => doc.data());
-  const excludeRanges = excludeSnap.docs.map((doc) => doc.data());
-  const allAssignments = assignmentSnap.docs.map((doc) => doc.data());
-  const pastAssignments = allAssignments.filter((assignment) => assignment.date < startDate);
-  const futureDocs = assignmentSnap.docs.filter((doc) => doc.data().date >= startDate);
-
-  const counts = Object.fromEntries(teachers.map((teacher) => [teacher.id, 0]));
-  pastAssignments.forEach((assignment) => {
-    if (counts[assignment.teacherId] !== undefined) counts[assignment.teacherId]++;
-  });
-
-  const teachersWithHistory = new Set(pastAssignments.map((assignment) => assignment.teacherId));
-  const historyCounts = teachers
-    .filter((teacher) => teachersWithHistory.has(teacher.id))
-    .map((teacher) => counts[teacher.id]);
-  const newTeacherBaseline = historyCounts.length > 0 ? Math.max(...historyCounts) : 0;
-  teachers.forEach((teacher) => {
-    if (!teachersWithHistory.has(teacher.id)) counts[teacher.id] = newTeacherBaseline;
-  });
-
-  const generated = [];
-  let rotationIndex = 0;
-  for (
-    let cursor = new Date(`${startDate}T00:00:00Z`);
-    cursor <= new Date(`${endDate}T00:00:00Z`);
-    cursor.setUTCDate(cursor.getUTCDate() + 1)
-  ) {
-    const date = cursor.toISOString().slice(0, 10);
-    const weekday = cursor.getUTCDay();
-    if (weekday === 0 || weekday === 6 || holidays[date]) continue;
-    if (noDutyRanges.some((range) => range.startDate <= date && date <= range.endDate)) continue;
-
-    const candidates = teachers.filter(
-      (teacher) =>
-        !(teacher.excludeWeekdays || []).includes(weekday) &&
-        !excludeRanges.some(
-          (range) =>
-            range.teacherId === teacher.id && range.startDate <= date && date <= range.endDate
-        )
-    );
-    const pool = candidates.length > 0 ? candidates : teachers;
-    const minimum = Math.min(...pool.map((teacher) => counts[teacher.id]));
-    const tiedIds = new Set(
-      pool.filter((teacher) => counts[teacher.id] === minimum).map((teacher) => teacher.id)
-    );
-    let picked = pool[0];
-    for (let offset = 0; offset < teachers.length; offset++) {
-      const candidate = teachers[(rotationIndex + offset) % teachers.length];
-      if (tiedIds.has(candidate.id)) {
-        picked = candidate;
-        break;
-      }
+    const teachers = teachersSnap.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter((teacher) => teacher.active !== false);
+    if (teachers.length === 0) {
+      throw new HttpsError('failed-precondition', '활성 선생님이 한 명 이상 필요합니다.');
     }
 
-    generated.push({ date, teacherId: picked.id, teacherName: picked.name });
-    counts[picked.id]++;
-    rotationIndex = teachers.findIndex((teacher) => teacher.id === picked.id) + 1;
-  }
-
-  const operations = [
-    ...futureDocs.map((doc) => (batch) => batch.delete(doc.ref)),
-    ...generated.map((assignment) => (batch) =>
-      batch.set(db.collection('assignments').doc(assignment.date), assignment)
-    ),
-  ];
-  await commitOperations(operations);
-  return generated.length;
+    const holidays = holidayDoc.exists ? holidayDoc.data().data || {} : {};
+    const noDutyRanges = noDutySnap.docs.map((doc) => doc.data());
+    const excludeRanges = excludeSnap.docs.map((doc) => doc.data());
+    const allAssignments = assignmentSnap.docs.map((doc) => doc.data());
+    if (!holidayDoc.exists || !Object.keys(holidayDoc.data().data || {}).length) {
+      throw new HttpsError('failed-precondition', '해당 연도의 공휴일 데이터를 먼저 등록하세요.');
+    }
+    const futureDocs = assignmentSnap.docs.filter((doc) => doc.data().date >= startDate);
+    const generated = generateFairSchedule(teachers, startDate, endDate, allAssignments, {
+      isDutyDay: (date) => {
+        const weekday = new Date(date + 'T00:00:00Z').getUTCDay();
+        return weekday !== 0 && weekday !== 6 && !holidays[date] &&
+          !noDutyRanges.some(range => range.startDate <= date && date <= range.endDate);
+      },
+      isTeacherExcluded: (id, date) => excludeRanges.some(range =>
+        range.teacherId === id && range.startDate <= date && date <= range.endDate),
+    });
+    const operations = [
+      ...futureDocs.filter(doc => !generated.some(a => a.date === doc.data().date)).map((doc) => (batch) => batch.delete(doc.ref)),
+      ...generated.map((assignment) => (batch) =>
+        batch.set(db.collection('assignments').doc(assignment.date), assignment)
+      ),
+    ];
+    operations.forEach(operation => operation(transaction));
+    return generated.length;
+  });
 }
 
 const { HttpsError } = require('firebase-functions/v2/https');
@@ -393,6 +287,10 @@ exports.manageTeacher = onCall(
     if (action === 'upsert') {
       const name = String(request.data?.name || '').trim();
       const excludeWeekdays = request.data?.excludeWeekdays;
+      const dutyStartDate = request.data?.dutyStartDate;
+      if (dutyStartDate && (!/^\d{4}-\d{2}-\d{2}$/.test(dutyStartDate) || Number.isNaN(Date.parse(dutyStartDate)) || new Date(dutyStartDate).toISOString().slice(0, 10) !== dutyStartDate)) {
+        throw new HttpsError('invalid-argument', '최초 당직 참여일을 확인하세요.');
+      }
       if (!name || name.length > 30) {
         throw new HttpsError('invalid-argument', '이름은 1~30자로 입력하세요.');
       }
@@ -412,6 +310,7 @@ exports.manageTeacher = onCall(
       await teacherRef.set(
         {
           name,
+          ...(dutyStartDate ? { dutyStartDate } : !existing.exists ? { dutyStartDate: getKoreanDateString() } : {}),
           excludeWeekdays: [...new Set(excludeWeekdays)].sort(),
           active: existing.exists ? existing.data().active !== false : true,
           updatedAt: Date.now(),
