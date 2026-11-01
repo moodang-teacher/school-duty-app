@@ -7,7 +7,6 @@ import { collection, getDocs, doc, getDoc, query, where } from 'firebase/firesto
 import {
   format,
   parseISO,
-  startOfMonth,
   endOfMonth,
   eachDayOfInterval,
   getDay,
@@ -24,19 +23,22 @@ interface Row {
   holidayName?: string;
 }
 
-// @page 설정(size: A4, margin: 36mm 24mm 18mm 24mm)과 반드시 일치시켜야 함
+// @page 설정과 동일한 크기로 측정한다.
 const MM_TO_PX = 96 / 25.4;
 const PAGE_HEIGHT_MM = 297;
 const PAGE_WIDTH_MM = 210;
-const PAGE_MARGIN_TOP_MM = 36; // 상단 여백
-const PAGE_MARGIN_BOTTOM_MM = 18; // 하단 여백
-const PAGE_MARGIN_H_MM = 24; // 좌우 여백
+const PAGE_MARGIN_TOP_MM = 10;
+const PAGE_MARGIN_BOTTOM_MM = 10;
+const PAGE_MARGIN_H_MM = 10;
+const PRINT_SAFETY_MM = 3; // 프린터 및 브라우저별 반올림 오차 대비
 const MIN_PRINT_SCALE = 0.55; // 이보다 작아지면 가독성이 떨어져 축소를 멈춤
+const MAX_PRINT_SCALE = 1.4;
 
-/** 인쇄될 실제 너비로 복제해 높이를 재고, A4 한 장에 들어가도록 필요한 축소 비율을 계산 */
+/** 확대에 따른 줄바꿈까지 측정해 A4 한 장을 채우는 가장 큰 배율을 찾는다. */
 function computePrintScale(source: HTMLElement): number {
   const contentHeightPx =
-    (PAGE_HEIGHT_MM - PAGE_MARGIN_TOP_MM - PAGE_MARGIN_BOTTOM_MM) * MM_TO_PX * 0.85; // 여유 15% (측정 오차 및 브라우저별 렌더링 차이 대비)
+    (PAGE_HEIGHT_MM - PAGE_MARGIN_TOP_MM - PAGE_MARGIN_BOTTOM_MM - PRINT_SAFETY_MM) *
+    MM_TO_PX;
   const contentWidthPx = (PAGE_WIDTH_MM - PAGE_MARGIN_H_MM * 2) * MM_TO_PX;
 
   const clone = source.cloneNode(true) as HTMLElement;
@@ -49,12 +51,24 @@ function computePrintScale(source: HTMLElement): number {
   clone.style.padding = '0';
   clone.style.margin = '0';
   clone.style.boxShadow = 'none';
+  clone.style.setProperty('zoom', '1');
   document.body.appendChild(clone);
-  const actualHeight = clone.scrollHeight;
-  document.body.removeChild(clone);
-
-  if (actualHeight <= contentHeightPx) return 1;
-  return Math.max(MIN_PRINT_SCALE, contentHeightPx / actualHeight);
+  try {
+    let low = MIN_PRINT_SCALE;
+    let high = MAX_PRINT_SCALE;
+    for (let i = 0; i < 14; i++) {
+      const scale = (low + high) / 2;
+      // 인쇄 시 width와 zoom이 적용된 것과 같은 너비로 측정한다.
+      clone.style.setProperty('width', `${contentWidthPx / scale}px`, 'important');
+      const fits = clone.scrollHeight * scale <= contentHeightPx &&
+        clone.scrollWidth * scale <= contentWidthPx + 1;
+      if (fits) low = scale;
+      else high = scale;
+    }
+    return Math.floor(low * 1000) / 1000;
+  } finally {
+    document.body.removeChild(clone);
+  }
 }
 
 export default function PrintPage() {
@@ -68,13 +82,20 @@ export default function PrintPage() {
   const [noDutyRanges, setNoDutyRanges] = useState<
     { startDate: string; endDate: string; reason: string }[]
   >([]);
-  const [printScale, setPrintScale] = useState(1);
   const printPageRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const reset = () => setPrintScale(1);
+    const prepare = () => {
+      const el = printPageRef.current;
+      if (el) el.style.setProperty('--print-zoom', String(computePrintScale(el)));
+    };
+    const reset = () => printPageRef.current?.style.removeProperty('--print-zoom');
+    window.addEventListener('beforeprint', prepare);
     window.addEventListener('afterprint', reset);
-    return () => window.removeEventListener('afterprint', reset);
+    return () => {
+      window.removeEventListener('beforeprint', prepare);
+      window.removeEventListener('afterprint', reset);
+    };
   }, []);
 
   useEffect(() => {
@@ -172,16 +193,11 @@ export default function PrintPage() {
   const periodLabel =
     firstRow?.date && lastRow?.date ? `${firstRow.date} ~ ${lastRow.date}` : '';
 
-  function handlePrint() {
-    const el = printPageRef.current;
-    const scale = el ? computePrintScale(el) : 1;
-    setPrintScale(scale);
-    // 스타일이 반영된 뒤(2프레임 대기) 인쇄 대화상자를 연다
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        window.print();
-      });
-    });
+  async function handlePrint() {
+    await document.fonts.ready;
+    await Promise.all(Array.from(printPageRef.current?.querySelectorAll('img') || [])
+      .map(image => image.decode().catch(() => undefined)));
+    window.print();
   }
 
   function changeMonth(delta: number) {
@@ -208,7 +224,7 @@ export default function PrintPage() {
       <style jsx global>{`
         @page {
           size: A4 portrait;
-          margin: 36mm 24mm 18mm 24mm;
+          margin: ${PAGE_MARGIN_TOP_MM}mm ${PAGE_MARGIN_H_MM}mm ${PAGE_MARGIN_BOTTOM_MM}mm;
         }
         @media print {
           .no-print {
@@ -222,6 +238,7 @@ export default function PrintPage() {
             margin: 0 !important;
             padding: 0 !important;
             max-width: none !important;
+            width: calc(100% / var(--print-zoom, 1));
             zoom: var(--print-zoom, 1);
           }
         }
@@ -231,7 +248,7 @@ export default function PrintPage() {
         .print-table {
           width: 100%;
           border-collapse: collapse;
-          font-size: 11pt;
+          font-size: 13pt;
         }
         .print-table th,
         .print-table td {
@@ -240,23 +257,23 @@ export default function PrintPage() {
           vertical-align: middle;
         }
         .print-table th {
-          padding: 6px 0;
+          padding: 7px 0;
           background: #f5f5f5;
           font-weight: 600;
         }
         .print-table td {
-          padding: 8px 0;
+          padding: 7px 0;
         }
         .holiday-cell {
           color: #c00;
           font-weight: 600;
         }
         .info-section {
-          font-size: 9pt;
+          font-size: 11pt;
           line-height: 1.5;
         }
         .info-section h3 {
-          font-size: 10pt;
+          font-size: 12pt;
           font-weight: 700;
           margin: 6px 0 2px;
         }
@@ -271,7 +288,7 @@ export default function PrintPage() {
         .contact-table {
           margin: 0 auto;
           border-collapse: collapse;
-          font-size: 9pt;
+          font-size: 10pt;
         }
         .contact-table th,
         .contact-table td {
@@ -283,16 +300,11 @@ export default function PrintPage() {
           background: #f5f5f5;
         }
         .print-footer {
-          margin-top: 24px;
+          margin-top: 16px;
         }
-        @media print {
-          .print-footer {
-            position: fixed;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            margin-top: 0;
-          }
+        .print-table tr,
+        .print-footer {
+          break-inside: avoid;
         }
       `}</style>
 
@@ -352,13 +364,12 @@ export default function PrintPage() {
       <div
         ref={printPageRef}
         className="print-page max-w-4xl mx-auto bg-white p-8 my-4 shadow-md"
-        style={{ '--print-zoom': printScale } as React.CSSProperties}
       >
         {/* 제목 */}
         <h1
           style={{
             textAlign: 'center',
-            fontSize: '18pt',
+            fontSize: '22pt',
             fontWeight: 700,
             textDecoration: 'underline',
             margin: '0 0 6px',
@@ -368,7 +379,7 @@ export default function PrintPage() {
         </h1>
 
         {/* 기간 */}
-        <div style={{ textAlign: 'right', fontSize: '9pt', marginBottom: '6px' }}>
+        <div style={{ textAlign: 'right', fontSize: '10pt', marginBottom: '6px' }}>
           {periodLabel}
         </div>
 
@@ -447,7 +458,7 @@ export default function PrintPage() {
         </table>
 
         {/* 숙지사항 - 표와의 간격 추가 */}
-        <div style={{ marginTop: '28px' }}>
+        <div style={{ marginTop: '20px' }}>
           <h2
             style={{
               textAlign: 'center',
@@ -497,7 +508,7 @@ export default function PrintPage() {
             </ul>
           </div>
 
-          {/* 비상연락망 + 학교 로고 - 항상 페이지 하단에 고정 */}
+          {/* 비상연락망과 로고도 높이 측정에 포함해 본문과 겹치지 않도록 한다. */}
           <div className="print-footer">
             <table className="contact-table">
               <thead>
