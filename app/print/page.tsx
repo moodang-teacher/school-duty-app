@@ -30,6 +30,7 @@ const PAGE_WIDTH_MM = 210;
 const PAGE_MARGIN_TOP_MM = 10;
 const PAGE_MARGIN_BOTTOM_MM = 10;
 const PAGE_MARGIN_H_MM = 10;
+const PRINT_WIDTH_MM = PAGE_WIDTH_MM - PAGE_MARGIN_H_MM * 2;
 const PRINT_SAFETY_MM = 3; // 프린터 및 브라우저별 반올림 오차 대비
 const MIN_PRINT_SCALE = 0.55; // 이보다 작아지면 가독성이 떨어져 축소를 멈춤
 const MAX_PRINT_SCALE = 1.4;
@@ -39,7 +40,7 @@ function computePrintScale(source: HTMLElement): number {
   const contentHeightPx =
     (PAGE_HEIGHT_MM - PAGE_MARGIN_TOP_MM - PAGE_MARGIN_BOTTOM_MM - PRINT_SAFETY_MM) *
     MM_TO_PX;
-  const contentWidthPx = (PAGE_WIDTH_MM - PAGE_MARGIN_H_MM * 2) * MM_TO_PX;
+  const contentWidthPx = PRINT_WIDTH_MM * MM_TO_PX;
 
   const clone = source.cloneNode(true) as HTMLElement;
   clone.style.position = 'fixed';
@@ -238,7 +239,8 @@ export default function PrintPage() {
             margin: 0 !important;
             padding: 0 !important;
             max-width: none !important;
-            width: calc(100% / var(--print-zoom, 1));
+            /* % 너비는 zoom에 따라 기준 폭까지 바뀌므로 실제 A4 폭을 사용한다. */
+            width: calc(${PRINT_WIDTH_MM}mm / var(--print-zoom, 1));
             zoom: var(--print-zoom, 1);
           }
         }
