@@ -271,11 +271,11 @@ export default function PrintPage() {
           font-weight: 600;
         }
         .info-section {
-          font-size: 11pt;
+          font-size: 10pt;
           line-height: 1.5;
         }
         .info-section h3 {
-          font-size: 12pt;
+          font-size: 11pt;
           font-weight: 700;
           margin: 6px 0 2px;
         }
