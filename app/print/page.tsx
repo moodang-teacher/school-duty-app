@@ -201,8 +201,8 @@ export default function PrintPage() {
           line-height: 1.15;
         }
         .print-table td {
-          padding: 3px 0;
-          font-size: 14pt;
+          padding: 10px 0;
+          font-size: 12pt;
           line-height: 1.1;
         }
         .holiday-cell {
@@ -212,6 +212,7 @@ export default function PrintPage() {
         .info-section {
           font-size: 10pt;
           line-height: 1.3;
+          margin: 20px 0;
         }
         .info-section h3 {
           font-size: 11pt;
@@ -398,7 +399,7 @@ export default function PrintPage() {
         </table>
 
         {/* 숙지사항 */}
-        <div style={{ marginTop: '10px' }}>
+        <div style={{ marginTop: '20px' }}>
           <h2
             style={{
               textAlign: 'center',
