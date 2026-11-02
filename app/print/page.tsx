@@ -31,7 +31,7 @@ const PAGE_MARGIN_TOP_MM = 10;
 const PAGE_MARGIN_BOTTOM_MM = 10;
 const PAGE_MARGIN_H_MM = 10;
 const PRINT_WIDTH_MM = PAGE_WIDTH_MM - PAGE_MARGIN_H_MM * 2;
-const PRINT_SAFETY_MM = 3; // 프린터 및 브라우저별 반올림 오차 대비
+const PRINT_SAFETY_MM = 10; // 브라우저 인쇄 페이지 분할과 프린터 여백 오차 대비
 const MIN_PRINT_SCALE = 0.55; // 이보다 작아지면 가독성이 떨어져 축소를 멈춤
 const MAX_PRINT_SCALE = 1.4;
 
@@ -264,7 +264,8 @@ export default function PrintPage() {
           font-weight: 600;
         }
         .print-table td {
-          padding: 7px 0;
+          padding: 4px 0;
+          font-size: 14pt;
         }
         .holiday-cell {
           color: #c00;
