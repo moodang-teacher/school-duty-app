@@ -23,55 +23,6 @@ interface Row {
   holidayName?: string;
 }
 
-// @page 설정과 동일한 크기로 측정한다.
-const MM_TO_PX = 96 / 25.4;
-const PAGE_HEIGHT_MM = 297;
-const PAGE_WIDTH_MM = 210;
-const PAGE_MARGIN_TOP_MM = 10;
-const PAGE_MARGIN_BOTTOM_MM = 10;
-const PAGE_MARGIN_H_MM = 10;
-const PRINT_WIDTH_MM = PAGE_WIDTH_MM - PAGE_MARGIN_H_MM * 2;
-const PRINT_SAFETY_MM = 10; // 브라우저 인쇄 페이지 분할과 프린터 여백 오차 대비
-const MIN_PRINT_SCALE = 0.55; // 이보다 작아지면 가독성이 떨어져 축소를 멈춤
-const MAX_PRINT_SCALE = 1.4;
-
-/** 확대에 따른 줄바꿈까지 측정해 A4 한 장을 채우는 가장 큰 배율을 찾는다. */
-function computePrintScale(source: HTMLElement): number {
-  const contentHeightPx =
-    (PAGE_HEIGHT_MM - PAGE_MARGIN_TOP_MM - PAGE_MARGIN_BOTTOM_MM - PRINT_SAFETY_MM) *
-    MM_TO_PX;
-  const contentWidthPx = PRINT_WIDTH_MM * MM_TO_PX;
-
-  const clone = source.cloneNode(true) as HTMLElement;
-  clone.style.position = 'fixed';
-  clone.style.top = '-99999px';
-  clone.style.left = '-99999px';
-  clone.style.visibility = 'hidden';
-  clone.style.width = `${contentWidthPx}px`;
-  clone.style.maxWidth = 'none';
-  clone.style.padding = '0';
-  clone.style.margin = '0';
-  clone.style.boxShadow = 'none';
-  clone.style.setProperty('zoom', '1');
-  document.body.appendChild(clone);
-  try {
-    let low = MIN_PRINT_SCALE;
-    let high = MAX_PRINT_SCALE;
-    for (let i = 0; i < 14; i++) {
-      const scale = (low + high) / 2;
-      // 인쇄 시 width와 zoom이 적용된 것과 같은 너비로 측정한다.
-      clone.style.setProperty('width', `${contentWidthPx / scale}px`, 'important');
-      const fits = clone.scrollHeight * scale <= contentHeightPx &&
-        clone.scrollWidth * scale <= contentWidthPx + 1;
-      if (fits) low = scale;
-      else high = scale;
-    }
-    return Math.floor(low * 1000) / 1000;
-  } finally {
-    document.body.removeChild(clone);
-  }
-}
-
 export default function PrintPage() {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -84,20 +35,6 @@ export default function PrintPage() {
     { startDate: string; endDate: string; reason: string }[]
   >([]);
   const printPageRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const prepare = () => {
-      const el = printPageRef.current;
-      if (el) el.style.setProperty('--print-zoom', String(computePrintScale(el)));
-    };
-    const reset = () => printPageRef.current?.style.removeProperty('--print-zoom');
-    window.addEventListener('beforeprint', prepare);
-    window.addEventListener('afterprint', reset);
-    return () => {
-      window.removeEventListener('beforeprint', prepare);
-      window.removeEventListener('afterprint', reset);
-    };
-  }, []);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -225,7 +162,7 @@ export default function PrintPage() {
       <style jsx global>{`
         @page {
           size: A4 portrait;
-          margin: ${PAGE_MARGIN_TOP_MM}mm ${PAGE_MARGIN_H_MM}mm ${PAGE_MARGIN_BOTTOM_MM}mm;
+          margin: 10mm;
         }
         @media print {
           .no-print {
@@ -239,9 +176,7 @@ export default function PrintPage() {
             margin: 0 !important;
             padding: 0 !important;
             max-width: none !important;
-            /* % 너비는 zoom에 따라 기준 폭까지 바뀌므로 실제 A4 폭을 사용한다. */
-            width: calc(${PRINT_WIDTH_MM}mm / var(--print-zoom, 1));
-            zoom: var(--print-zoom, 1);
+            width: 190mm !important;
           }
         }
         .print-page {
@@ -250,7 +185,7 @@ export default function PrintPage() {
         .print-table {
           width: 100%;
           border-collapse: collapse;
-          font-size: 13pt;
+          table-layout: fixed;
         }
         .print-table th,
         .print-table td {
@@ -259,13 +194,16 @@ export default function PrintPage() {
           vertical-align: middle;
         }
         .print-table th {
-          padding: 7px 0;
+          padding: 3px 0;
           background: #f5f5f5;
           font-weight: 600;
+          font-size: 11pt;
+          line-height: 1.15;
         }
         .print-table td {
-          padding: 4px 0;
+          padding: 3px 0;
           font-size: 14pt;
+          line-height: 1.1;
         }
         .holiday-cell {
           color: #c00;
@@ -273,12 +211,12 @@ export default function PrintPage() {
         }
         .info-section {
           font-size: 10pt;
-          line-height: 1.5;
+          line-height: 1.3;
         }
         .info-section h3 {
           font-size: 11pt;
           font-weight: 700;
-          margin: 6px 0 2px;
+          margin: 4px 0 1px;
         }
         .info-section ul {
           margin: 0;
@@ -296,14 +234,14 @@ export default function PrintPage() {
         .contact-table th,
         .contact-table td {
           border: 1px solid #000;
-          padding: 5px 10px;
+          padding: 3px 8px;
           text-align: center;
         }
         .contact-table th {
           background: #f5f5f5;
         }
         .print-footer {
-          margin-top: 16px;
+          margin-top: 8px;
         }
         .print-table tr,
         .print-footer {
@@ -358,8 +296,7 @@ export default function PrintPage() {
           </button>
         </div>
         <div className="max-w-4xl mx-auto mt-2 text-xs text-slate-500">
-          💡 인쇄 시 머리글/바닥글이 안 보이게 하려면 인쇄 대화상자에서 "더 보기" → "머리글 및
-          바닥글" 체크를 해제하세요.
+          💡 A4 용지와 배율 100%로 인쇄하고, "더 보기"에서 "머리글 및 바닥글"을 해제하세요.
         </div>
       </div>
 
@@ -375,14 +312,14 @@ export default function PrintPage() {
             fontSize: '22pt',
             fontWeight: 700,
             textDecoration: 'underline',
-            margin: '0 0 6px',
+              margin: '0 0 4px',
           }}
         >
           일일 당직 근무자 명단
         </h1>
 
         {/* 기간 */}
-        <div style={{ textAlign: 'right', fontSize: '10pt', marginBottom: '6px' }}>
+        <div style={{ textAlign: 'right', fontSize: '10pt', marginBottom: '4px' }}>
           {periodLabel}
         </div>
 
@@ -390,16 +327,16 @@ export default function PrintPage() {
         <table className="print-table">
           <thead>
             <tr>
-              <th style={{ width: '13%' }}>당직자 성명</th>
-              <th style={{ width: '8%' }}>요일</th>
-              <th style={{ width: '10%' }}>일자</th>
-              <th style={{ width: '9%' }}>변경</th>
-              <th style={{ width: '10%' }}>서명</th>
-              <th style={{ width: '13%' }}>당직자 성명</th>
-              <th style={{ width: '8%' }}>요일</th>
-              <th style={{ width: '10%' }}>일자</th>
-              <th style={{ width: '9%' }}>변경</th>
-              <th style={{ width: '10%' }}>서명</th>
+              <th style={{ width: '14%' }}>당직자 성명</th>
+              <th style={{ width: '9%' }}>요일</th>
+              <th style={{ width: '12%' }}>일자</th>
+              <th style={{ width: '7%' }}>변경</th>
+              <th style={{ width: '8%' }}>서명</th>
+              <th style={{ width: '14%' }}>당직자 성명</th>
+              <th style={{ width: '9%' }}>요일</th>
+              <th style={{ width: '12%' }}>일자</th>
+              <th style={{ width: '7%' }}>변경</th>
+              <th style={{ width: '8%' }}>서명</th>
             </tr>
           </thead>
           <tbody>
@@ -460,14 +397,14 @@ export default function PrintPage() {
           </tbody>
         </table>
 
-        {/* 숙지사항 - 표와의 간격 추가 */}
-        <div style={{ marginTop: '20px' }}>
+        {/* 숙지사항 */}
+        <div style={{ marginTop: '10px' }}>
           <h2
             style={{
               textAlign: 'center',
               fontSize: '12pt',
               fontWeight: 700,
-              margin: '0 0 8px',
+              margin: '0 0 5px',
             }}
           >
             당직 근무자 숙지사항
@@ -536,11 +473,11 @@ export default function PrintPage() {
               </tbody>
             </table>
 
-            <div style={{ textAlign: 'center', marginTop: '12px' }}>
+            <div style={{ textAlign: 'center', marginTop: '6px' }}>
               <img
                 src="/images/iti_logo.png"
                 alt="인천직업전문학교"
-                style={{ height: '60px', display: 'inline-block' }}
+                style={{ height: '45px', display: 'inline-block' }}
               />
             </div>
           </div>
